@@ -177,53 +177,63 @@ serviceAccountKey.json  ✅ 정상
 
 ---
 
-## 7. 잠재적 개선 사항 (권고사항)
+## 7. 개선 사항 (완료됨)
 
-> **참고:** 아래는 현재 기능에 영향을 주지 않는 개선 제안입니다. 코드 수정 지시가 아닙니다.
+> **업데이트:** 아래 권고사항들은 2024-12-02에 모두 반영 완료되었습니다.
 
-### 7.1 경로 중복 정의 (Minor)
+### 7.1 경로 중복 정의 ✅ 해결됨
 
-**현상:** `routers/mmd.py`, `routers/emd.py`, `routers/admin.py`에서 각각 `BASE_DIR`, `ROOT_DIR` 등을 개별 정의하고 있음.
+**이전 상태:** `routers/mmd.py`, `routers/emd.py`, `routers/admin.py`에서 각각 `BASE_DIR`, `ROOT_DIR` 등을 개별 정의
+
+**해결 방법:** `core/config.py`의 `settings` 객체를 일관되게 사용하도록 수정
 
 ```python
-# routers/mmd.py (line 19-23)
+# 변경 전
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROOT_DIR = os.path.dirname(BASE_DIR)
-TEMP_DIR = os.path.join(ROOT_DIR, "temp")
 OUTPUT_DIR = os.path.join(ROOT_DIR, "outputs")
-DATA_DIR = os.path.join(ROOT_DIR, "data")
+
+# 변경 후
+from core.config import settings
+# settings.OUTPUT_DIR 사용
 ```
 
-**권고:** `core/config.py`의 `settings` 객체를 일관되게 사용하면 유지보수성이 향상됨.
+### 7.2 Deprecated 이벤트 핸들러 ✅ 해결됨
 
-**심각도:** 낮음 (Low) - 현재 정상 작동함
+**이전 상태:** `@app.on_event("startup")` 사용
 
-### 7.2 Deprecated 이벤트 핸들러 (Minor)
-
-**현상:** `@app.on_event("startup")` 사용 중
+**해결 방법:** FastAPI의 `lifespan` context manager 사용
 
 ```python
-@app.on_event("startup")  # FastAPI에서 deprecated 경고 가능
+# 변경 전
+@app.on_event("startup")
 async def startup_event():
-    ...
+    data_loader.load_csv_to_memory()
+
+# 변경 후
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Server starting up...")
+    data_loader.load_csv_to_memory()
+    yield
+    logger.info("Server shutting down...")
+
+app = FastAPI(..., lifespan=lifespan)
 ```
 
-**권고:** FastAPI 최신 버전에서는 `lifespan` context manager 권장
+### 7.3 에러 핸들링 ✅ 해결됨
 
-**심각도:** 낮음 (Low) - 현재 버전에서 정상 작동
+**이전 상태:** `try-except` 블록에서 `pass` 처리
 
-### 7.3 에러 핸들링 개선 가능 (Minor)
-
-**현상:** 일부 `try-except` 블록에서 `pass` 처리
+**해결 방법:** Python `logging` 모듈을 사용하여 에러 로깅
 
 ```python
-# routers/mmd.py (line 36)
+# 변경 전
 except: pass
+
+# 변경 후
+except Exception as e:
+    logger.error(f"Failed to load DC lookup CSV: {e}")
 ```
-
-**권고:** 로깅 추가 권장
-
-**심각도:** 낮음 (Low) - 기능에 영향 없음
 
 ---
 

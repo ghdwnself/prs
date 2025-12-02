@@ -2,28 +2,32 @@ from fastapi import APIRouter, HTTPException, Body
 from typing import List, Dict, Any
 import math
 import os
+import logging
 import pandas as pd
 from datetime import datetime
+
+# Config & Services
+from core.config import settings
 from services.firebase_service import firebase_manager
 from services.palletizer_emd import PalletizerEMD
 from services.document_generator import DocumentGenerator
 from services.data_loader import data_loader
 
-router = APIRouter(prefix="/api/emd", tags=["EMD"])
+# 로깅 설정
+logger = logging.getLogger(__name__)
 
-# --- 경로 설정 ---
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROOT_DIR = os.path.dirname(BASE_DIR)
-OUTPUT_DIR = os.path.join(ROOT_DIR, "outputs")
+router = APIRouter(prefix="/api/emd", tags=["EMD"])
 
 # --- Helper: 안전한 값 추출 ---
 def safe_float(val, default=0.0):
     try: return float(val)
-    except: return default
+    except Exception:
+        return default
 
 def safe_int(val, default=1):
     try: return int(val)
-    except: return default
+    except Exception:
+        return default
 
 # --- Helper: 정보 조회 (CSV -> Firebase 순서) ---
 def get_item_info(sku):
@@ -100,7 +104,7 @@ def get_item_info(sku):
                 item_data['stock'] = stock_sum
                 
         except Exception as e:
-            print(f"⚠️ DB Error ({target_sku}): {e}")
+            logger.warning(f"DB Error ({target_sku}): {e}")
 
     return item_data
 
@@ -133,7 +137,7 @@ async def validate_skus(payload: Dict[str, Any] = Body(...)):
         return {"status": "success", "data": result}
         
     except Exception as e:
-        print(f"❌ Validation Error: {e}")
+        logger.error(f"Validation Error: {e}")
         return {"status": "error", "message": str(e), "data": []}
 
 @router.post("/process_order")
@@ -161,7 +165,7 @@ async def process_order(payload: Dict[str, Any] = Body(...)):
         palletizer = PalletizerEMD()
         pallets = palletizer.calculate_pallets(pallet_input)
         
-        doc_gen = DocumentGenerator(OUTPUT_DIR)
+        doc_gen = DocumentGenerator(settings.OUTPUT_DIR)
         
         customer_name = order_info.get('customer_name', 'Manual Customer')
         emd_lookup = {'EMD': {'Customer': customer_name, 'PL Ship to': customer_name}}
@@ -186,7 +190,7 @@ async def process_order(payload: Dict[str, Any] = Body(...)):
         }
         
     except Exception as e:
-        print(f"❌ Process Error: {e}")
+        logger.error(f"Process Error: {e}")
         raise HTTPException(500, str(e))
 
 @router.post("/submit_order")
@@ -196,7 +200,7 @@ async def submit_order(payload: Dict[str, Any] = Body(...)):
     if not db:
         # DB가 없으면 에러 대신 가짜 성공 메시지라도 보내서 테스트 가능하게 함 (선택사항)
         # raise HTTPException(503, "Database not connected")
-        print("⚠️ DB Not Connected. Order not saved.")
+        logger.warning("DB Not Connected. Order not saved.")
         return {"status": "success", "message": "Order received (DB Disconnected)"}
         
     try:
@@ -214,5 +218,5 @@ async def submit_order(payload: Dict[str, Any] = Body(...)):
         return {"status": "success", "message": "Order submitted successfully"}
         
     except Exception as e:
-        print(f"❌ Submit Error: {e}")
+        logger.error(f"Submit Error: {e}")
         raise HTTPException(500, str(e))

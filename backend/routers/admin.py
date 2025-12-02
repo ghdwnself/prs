@@ -2,22 +2,23 @@ from fastapi import APIRouter, HTTPException, Body
 import os
 import json
 import glob
+import logging
 from datetime import datetime
 from typing import Dict, Any
 
-# 기존 서비스 임포트
+# Config & Services
+from core.config import settings
 from services.data_loader import data_loader
 from services.firebase_service import firebase_manager
 
+# 로깅 설정
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
-# --- 경로 설정 ---
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROOT_DIR = os.path.dirname(BASE_DIR)
-DATA_DIR = os.path.join(ROOT_DIR, "data")
-OUTPUT_DIR = os.path.join(ROOT_DIR, "outputs")
-HISTORY_DIR = os.path.join(OUTPUT_DIR, "history")
-CONFIG_FILE = os.path.join(DATA_DIR, "system_config.json")
+# --- 경로 설정 (settings 기반) ---
+HISTORY_DIR = os.path.join(settings.OUTPUT_DIR, "history")
+CONFIG_FILE = os.path.join(settings.DATA_DIR, "system_config.json")
 
 # --- 1. 시스템 설정 관리 (System Settings) ---
 
@@ -34,11 +35,12 @@ def load_config():
     try:
         with open(CONFIG_FILE, 'r') as f:
             return json.load(f)
-    except:
+    except Exception as e:
+        logger.error(f"Failed to load config: {e}")
         return DEFAULT_CONFIG
 
 def save_config(config_data):
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(settings.DATA_DIR, exist_ok=True)
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config_data, f, indent=4)
 
@@ -89,7 +91,8 @@ async def get_po_history():
                         # 여기서는 단순화를 위해 JSON 내부에 저장된 files 정보가 있다면 사용
                         "files": data.get('data', {}).get('files', {}) 
                     })
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse history file {fpath}: {e}")
                 continue
         
         # 최신순 정렬

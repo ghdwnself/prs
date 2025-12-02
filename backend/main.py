@@ -1,4 +1,6 @@
 import uvicorn
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -10,7 +12,24 @@ from core.config import settings
 from routers import mmd, emd, admin
 from services.data_loader import data_loader
 
-app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """서버 수명주기 관리 - 시작 시 CSV 데이터를 메모리에 로드"""
+    logger.info("Server starting up...")
+    data_loader.load_csv_to_memory()
+    yield
+    logger.info("Server shutting down...")
+
+
+app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,11 +42,6 @@ app.add_middleware(
 app.include_router(mmd.router)
 app.include_router(emd.router)
 app.include_router(admin.router)
-
-@app.on_event("startup")
-async def startup_event():
-    """서버 시작 시 CSV 데이터를 메모리에 로드 (Fallback용)"""
-    data_loader.load_csv_to_memory()
 
 @app.get("/api/download/{filename}")
 async def download_file(filename: str):

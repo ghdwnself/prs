@@ -1,9 +1,13 @@
 import pandas as pd
 import os
 import math
+import logging
 from services.firebase_service import firebase_manager
 from core.config import settings
 from firebase_admin import firestore
+
+# 로깅 설정
+logger = logging.getLogger(__name__)
 
 class DataLoader:
     def __init__(self):
@@ -21,7 +25,7 @@ class DataLoader:
 
     def load_csv_to_memory(self):
         """서버 시작 시 CSV를 메모리에 로드 (DB 연결 실패 시 사용)"""
-        print("🔄 Loading CSV Data into Memory...")
+        logger.info("Loading CSV Data into Memory...")
         
         # Products
         p_path = os.path.join(self.data_dir, "products_template.csv")
@@ -31,8 +35,9 @@ class DataLoader:
                 for _, row in df.iterrows():
                     sku = str(row.get('SKU', '')).strip()
                     if sku: self.products[sku] = row.to_dict()
-                print(f"   ✅ Products loaded: {len(self.products)}")
-            except: pass
+                logger.info(f"Products loaded: {len(self.products)}")
+            except Exception as e:
+                logger.error(f"Failed to load products CSV: {e}")
 
         # Inventory
         i_path = os.path.join(self.data_dir, "inventory_template.csv")
@@ -41,16 +46,18 @@ class DataLoader:
                 df = pd.read_csv(i_path, dtype={'sku': str})
                 grouped = df.groupby('sku')['onHand'].sum()
                 self.inventory = grouped.to_dict()
-                print(f"   ✅ Inventory loaded: {len(self.inventory)}")
-            except: pass
+                logger.info(f"Inventory loaded: {len(self.inventory)}")
+            except Exception as e:
+                logger.error(f"Failed to load inventory CSV: {e}")
 
         # Buyers
         b_path = os.path.join(self.data_dir, "SalesbyJames - db_buyer.csv")
         if os.path.exists(b_path):
             try:
                 self.buyers = pd.read_csv(b_path).to_dict('records')
-                print(f"   ✅ Buyers loaded: {len(self.buyers)}")
-            except: pass
+                logger.info(f"Buyers loaded: {len(self.buyers)}")
+            except Exception as e:
+                logger.error(f"Failed to load buyers CSV: {e}")
 
     async def sync_products(self):
         """products_template.csv -> Firebase 'products' 컬렉션"""
