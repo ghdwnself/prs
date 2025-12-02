@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Order Portal</title>
+    <style>
+        /* 스타일은 기존과 동일 */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f5f5f7; color: #1d1d1f; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 900px; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+        h1 { text-align: center; margin-bottom: 30px; font-weight: 700; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 0.9rem; color: #86868b; }
+        input, textarea { width: 100%; padding: 12px; border: 1px solid #d2d2d7; border-radius: 10px; font-size: 16px; box-sizing: border-box; }
+        textarea { height: 120px; resize: vertical; font-family: monospace; }
+        .btn { width: 100%; padding: 16px; background-color: #0071e3; color: white; border: none; border-radius: 12px; font-size: 18px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+        .btn:hover { background-color: #0077ed; }
+        .btn:disabled { background-color: #d2d2d7; cursor: not-allowed; }
+        
+        .order-table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 30px; }
+        .order-table th { text-align: left; padding: 10px; border-bottom: 2px solid #eee; font-size: 0.9rem; color: #555; }
+        .order-table td { padding: 10px; border-bottom: 1px solid #eee; }
+        .qty-input { width: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 6px; text-align: right; }
+        
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; }
+        .modal-box { background: white; padding: 40px; border-radius: 16px; text-align: center; max-width: 400px; }
+        .success-icon { font-size: 48px; color: #34c759; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Place Your Order</h1>
+    
+    <div class="form-group">
+        <label>Company Name</label>
+        <input type="text" id="customerName" placeholder="Enter your company name" required>
+    </div>
+    <div class="form-group">
+        <label>PO Number</label>
+        <input type="text" id="poNumber" placeholder="e.g. PO-2024-001">
+    </div>
+    <div class="form-group">
+        <label>Requested Pickup Date</label>
+        <input type="date" id="pickupDate" required>
+    </div>
+
+    <div class="form-group">
+        <label>Paste Items (SKU [Tab] Quantity)</label>
+        <div style="display: flex; gap: 10px;">
+            <textarea id="pasteArea" placeholder="56250	10&#10;56239	5"></textarea>
+            <button id="parseBtn" class="btn" style="width: 120px; font-size: 16px;">Add Items</button>
+        </div>
+    </div>
+
+    <table class="order-table" id="orderTable" style="display: none;">
+        <thead><tr><th>SKU</th><th>Product Name</th><th>Pack</th><th style="text-align:right;">Quantity</th><th></th></tr></thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+
+    <button id="submitBtn" class="btn" disabled>Submit Order</button>
+</div>
+
+<div id="successModal" class="modal-overlay">
+    <div class="modal-box">
+        <div class="success-icon">✅</div>
+        <h2>Order Submitted!</h2>
+        <p>Your order has been successfully placed.</p>
+        <button class="btn" onclick="location.reload()">Place Another Order</button>
+    </div>
+</div>
+
+<script>
+    // [중요] API 주소 (로컬 테스트용)
+    const API_BASE_URL = "http://localhost:8001";
+    let orderItems = [];
+
+    document.getElementById('parseBtn').addEventListener('click', async () => {
+        const text = document.getElementById('pasteArea').value;
+        if (!text.trim()) return;
+
+        const lines = text.split('\n');
+        const skus = [];
+        const qtyMap = {};
+
+        lines.forEach(line => {
+            const parts = line.split(/[\t,]+/).map(s => s.trim()).filter(s => s);
+            if (parts.length > 0) {
+                const sku = parts[0];
+                skus.push(sku);
+                if (parts.length > 1) qtyMap[sku] = parseInt(parts[1]) || 0;
+            }
+        });
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/emd/validate_skus`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ skus: skus })
+            });
+            
+            if (!res.ok) throw new Error("Server connection failed");
+            const result = await res.json();
+            
+            if (result.data) {
+                result.data.forEach(info => {
+                    if (info.is_valid) {
+                        const existing = orderItems.find(i => i.sku === info.sku);
+                        const inputQty = qtyMap[info.sku] || 0;
+
+                        if (existing) {
+                            if (inputQty > 0) existing.qty += inputQty;
+                        } else {
+                            orderItems.push({
+                                sku: info.sku,
+                                name: info.desc,
+                                pack: info.pack_size,
+                                qty: inputQty
+                            });
+                        }
+                    }
+                });
+                renderTable();
+            }
+        } catch (err) {
+            alert("Error loading product info. Is the server running?");
+        }
+    });
+
+    function renderTable() {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+        
+        if (orderItems.length > 0) {
+            document.getElementById('orderTable').style.display = 'table';
+            document.getElementById('submitBtn').disabled = false;
+        }
+
+        orderItems.forEach((item, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong>${item.sku}</strong></td>
+                <td>${item.name}</td>
+                <td>${item.pack}</td>
+                <td style="text-align:right;">
+                    <input type="number" class="qty-input" value="${item.qty}" min="0" onchange="updateQty(${idx}, this.value)">
+                </td>
+                <td style="text-align:center; cursor:pointer; color:red;" onclick="removeItem(${idx})">✕</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    window.updateQty = (idx, val) => { orderItems[idx].qty = parseInt(val) || 0; };
+    window.removeItem = (idx) => { orderItems.splice(idx, 1); renderTable(); };
+
+    // [수정] API로 주문 전송
+    document.getElementById('submitBtn').addEventListener('click', async () => {
+        const customer = document.getElementById('customerName').value;
+        const date = document.getElementById('pickupDate').value;
+        
+        if (!customer || !date) return alert("Please fill in Company Name and Date.");
+
+        const btn = document.getElementById('submitBtn');
+        btn.disabled = true;
+        btn.textContent = "Submitting...";
+
+        const payload = {
+            customer_name: customer,
+            po_number: document.getElementById('poNumber').value,
+            pickup_date: date,
+            items: orderItems
+        };
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/emd/submit_order`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            
+            if (!res.ok) throw new Error("Submission failed");
+            
+            document.getElementById('successModal').style.display = 'flex';
+        } catch (e) {
+            alert("Error: " + e.message);
+            btn.disabled = false;
+            btn.textContent = "Submit Order";
+        }
+    });
+</script>
+</body>
+</html>

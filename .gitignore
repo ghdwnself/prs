@@ -1,0 +1,25 @@
+# --- 1. 절대 올리면 안 되는 보안 파일 (Key) ---
+serviceAccountKey.json
+.env
+
+# --- 2. 시스템 자동 생성 파일 (불필요) ---
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+
+# --- 3. 로컬 환경 설정 (직원마다 다름) ---
+venv/
+.venv/
+
+# --- 4. 데이터 및 결과물 (용량 및 보안 이슈) ---
+outputs/*
+temp/*
+data/*.csv
+data/*.xlsx
+
+# --- 5. 폴더 구조 유지를 위한 예외 처리 ---
+# (빈 폴더는 git에 안 올라가므로, .keep 파일은 허용)
+!outputs/.keep
+!temp/.keep
+!data/.keep

@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMD Manual Entry - POReviewSystem</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        .step-container { max-width: 1200px; margin: 0 auto; }
+        .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; }
+        .form-control { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.95rem; }
+        
+        .autocomplete-wrapper { position: relative; }
+        .autocomplete-list { 
+            position: absolute; top: 100%; left: 0; right: 0; background: white; 
+            border: 1px solid var(--border-color); border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 100;
+            display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .autocomplete-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #f1f5f9; }
+        .autocomplete-item:hover { background: #f8fafc; }
+
+        .sku-input-wrapper { display: flex; gap: 16px; align-items: flex-start; }
+        .sku-textarea { flex: 1; height: 120px; font-family: monospace; resize: vertical; }
+        
+        .item-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .item-table th { background: #f8fafc; padding: 12px; text-align: left; font-size: 0.85rem; border-bottom: 2px solid #e2e8f0; }
+        .item-table td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; vertical-align: middle; }
+        .qty-input { width: 80px; padding: 6px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: right; }
+        .row-error { background-color: #fef2f2; }
+        .text-danger { color: #ef4444; font-weight: 600; }
+        .hidden { display: none; }
+        
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background: white; padding: 24px; border-radius: 12px; width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <nav class="sidebar">
+            <div class="sidebar-header">PO<span class="brand-highlight">Review</span></div>
+            <ul class="nav-links">
+                <li class="nav-item"><a href="index.html" class="nav-link"><span class="nav-icon">📊</span> Dashboard</a></li>
+                <li class="nav-item"><a href="mmd.html" class="nav-link"><span class="nav-icon">📄</span> MMD (Auto)</a></li>
+                <li class="nav-item"><a href="emd.html" class="nav-link active"><span class="nav-icon">✍️</span> EMD (Manual)</a></li>
+                <li class="nav-item"><a href="admin.html" class="nav-link"><span class="nav-icon">⚙️</span> Admin</a></li>
+            </ul>
+        </nav>
+        <main class="main-content">
+            <header class="top-header">
+                <div class="page-title">EMD: Manual Order Entry</div>
+                <div class="user-profile"><span>User</span><div class="avatar">U</div></div>
+            </header>
+            <div class="content-body step-container">
+                
+                <!-- Top Actions -->
+                <div style="text-align: right; margin-bottom: 20px;">
+                    <button class="btn btn-secondary" onclick="openOrderModal()">📥 Load Customer Order</button>
+                </div>
+
+                <!-- Step 1: Order Info -->
+                <div class="card">
+                    <h3 style="margin-bottom: 16px;">1. Order Information</h3>
+                    <div class="form-grid">
+                        <div class="form-group autocomplete-wrapper">
+                            <label>Customer Name</label>
+                            <input type="text" id="customerSearch" class="form-control" placeholder="Type to search..." autocomplete="off">
+                            <div id="customerList" class="autocomplete-list"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>PO Number</label>
+                            <input type="text" id="poNumber" class="form-control" placeholder="e.g. 123456">
+                        </div>
+                        <div class="form-group">
+                            <label>Ship Window</label>
+                            <input type="text" id="shipWindow" class="form-control" placeholder="e.g. 11/20 - 11/30">
+                        </div>
+                        <div class="form-group">
+                            <label>Site</label>
+                            <select id="siteSelect" class="form-control">
+                                <option value="Sub WH">Sub WH</option>
+                                <option value="Main WH">Main WH</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: SKU Entry -->
+                <div class="card">
+                    <h3 style="margin-bottom: 16px;">2. Add Items</h3>
+                    <div class="sku-input-wrapper">
+                        <div style="flex:1;">
+                            <label style="display:block; margin-bottom:8px; font-size:0.9rem;">Paste SKUs (Format: SKU [Tab] Qty)</label>
+                            <textarea id="skuPasteArea" class="form-control sku-textarea" placeholder="56250&#10;56239	10"></textarea>
+                        </div>
+                        <button id="addItemsBtn" class="btn btn-primary" style="height: 50px; align-self: center;">
+                            Add to List →
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Item List & Qty -->
+                <div class="card" id="itemListCard" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h3>3. Review & Quantities</h3>
+                        <div style="font-size:1.1rem;">Total: <strong id="grandTotal">$0.00</strong></div>
+                    </div>
+                    
+                    <table class="item-table">
+                        <thead>
+                            <tr>
+                                <th>SKU</th>
+                                <th>Description</th>
+                                <th>Stock</th>
+                                <th class="text-right">Price</th>
+                                <th class="text-right">Pack</th>
+                                <th class="text-right">Qty (Units)</th>
+                                <th class="text-right">Total</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemTableBody"></tbody>
+                    </table>
+
+                    <div style="margin-top: 24px; text-align: right;">
+                        <button id="calculateBtn" class="btn btn-success" disabled>Calculate Pallets & Generate Docs</button>
+                    </div>
+                </div>
+
+                <!-- Step 4: Result -->
+                <div id="resultSection" class="card hidden" style="text-align: center;">
+                    <div style="font-size: 48px; margin-bottom: 16px;">🎉</div>
+                    <h3>Order Processed!</h3>
+                    <div id="downloadLinks" style="display: grid; gap: 12px; max-width: 400px; margin: 20px auto;"></div>
+                    <button class="btn btn-secondary" onclick="location.reload()">New Order</button>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Order Load Modal -->
+    <div id="orderModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0;">Recent Customer Orders</h3>
+                <button class="btn btn-secondary" style="padding:4px 10px;" onclick="document.getElementById('orderModal').style.display='none'">✕</button>
+            </div>
+            <table class="item-table">
+                <thead><tr><th>Customer</th><th>Date</th><th>Items</th><th>Action</th></tr></thead>
+                <tbody id="orderListBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="assets/js/app.js"></script>
+    <script>
+        let cartItems = [];
+
+        // --- Customer Autocomplete ---
+        const customerInput = document.getElementById('customerSearch');
+        const customerList = document.getElementById('customerList');
+        let debounceTimer;
+
+        customerInput.addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            const query = e.target.value.trim();
+            if (query.length < 2) { customerList.style.display = 'none'; return; }
+            
+            debounceTimer = setTimeout(async () => {
+                try {
+                    const res = await fetch(`/api/emd/search_customers?query=${encodeURIComponent(query)}`);
+                    const result = await res.json();
+                    customerList.innerHTML = '';
+                    if (result.data && result.data.length > 0) {
+                        result.data.forEach(cust => {
+                            const div = document.createElement('div');
+                            div.className = 'autocomplete-item';
+                            div.textContent = cust.name;
+                            div.onclick = () => { customerInput.value = cust.name; customerList.style.display = 'none'; };
+                            customerList.appendChild(div);
+                        });
+                        customerList.style.display = 'block';
+                    } else { customerList.style.display = 'none'; }
+                } catch (err) {}
+            }, 300);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!customerInput.contains(e.target) && !customerList.contains(e.target)) customerList.style.display = 'none';
+        });
+
+        // --- Load Order Modal ---
+        window.openOrderModal = async function() {
+            document.getElementById('orderModal').style.display = 'flex';
+            const tbody = document.getElementById('orderListBody');
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center">Loading...</td></tr>';
+            
+            try {
+                const res = await fetch('/api/emd/pending_orders');
+                const result = await res.json();
+                tbody.innerHTML = '';
+                if (!result.data || result.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center">No orders found.</td></tr>';
+                    return;
+                }
+                result.data.forEach(order => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${order.customer}</td><td>${order.date}</td><td>${order.items_count}</td><td><button class="btn btn-primary" style="padding:4px 8px; font-size:12px;" onclick="loadOrder('${order.id}')">Load</button></td>`;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) { tbody.innerHTML = '<tr><td colspan="4">Error loading orders.</td></tr>'; }
+        };
+
+        window.loadOrder = async function(orderId) {
+            try {
+                const res = await fetch('/api/emd/load_order', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ order_id: orderId })
+                });
+                const result = await res.json();
+                if(result.status === 'success') {
+                    const order = result.order;
+                    document.getElementById('customerSearch').value = order.customer_name || '';
+                    document.getElementById('poNumber').value = order.po_number || '';
+                    document.getElementById('shipWindow').value = order.pickup_date || '';
+                    
+                    const skus = order.items.map(i => i.sku);
+                    const valRes = await fetch('/api/emd/validate_skus', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ skus: skus })
+                    });
+                    const valData = await valRes.json();
+                    
+                    cartItems = [];
+                    if (Array.isArray(valData.data)) {
+                        valData.data.forEach(item => {
+                            const originItem = order.items.find(i => i.sku === item.sku);
+                            const qty = originItem ? parseInt(originItem.qty) : 0;
+                            cartItems.push({ ...item, qty: qty });
+                        });
+                    }
+                    renderTable();
+                    document.getElementById('itemListCard').style.display = 'block';
+                    document.getElementById('orderModal').style.display = 'none';
+                }
+            } catch (err) { alert("Failed to load order: " + err.message); }
+        };
+
+        // --- SKU Entry (Smart Paste) ---
+        document.getElementById('addItemsBtn').addEventListener('click', async () => {
+            const text = document.getElementById('skuPasteArea').value;
+            if (!text.trim()) return alert("Please enter SKUs.");
+            
+            const lines = text.split('\n');
+            const skus = [];
+            const qtyMap = {};
+
+            lines.forEach(line => {
+                const parts = line.split(/[\t,]+/).map(s => s.trim()).filter(s => s);
+                if (parts.length > 0) {
+                    const sku = parts[0];
+                    skus.push(sku);
+                    if (parts.length > 1) qtyMap[sku] = parseInt(parts[1]) || 0;
+                }
+            });
+            
+            try {
+                const res = await fetch('/api/emd/validate_skus', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ skus: skus })
+                });
+                const result = await res.json();
+                
+                if (Array.isArray(result.data)) {
+                    result.data.forEach(item => {
+                        const existing = cartItems.find(c => c.sku === item.sku);
+                        const inputQty = qtyMap[item.sku] || 0;
+
+                        if (existing) {
+                            if (inputQty > 0) existing.qty += inputQty;
+                        } else {
+                            cartItems.push({ ...item, qty: inputQty });
+                        }
+                    });
+                    renderTable();
+                    document.getElementById('skuPasteArea').value = '';
+                    document.getElementById('itemListCard').style.display = 'block';
+                }
+            } catch (err) { alert("Error: " + err.message); }
+        });
+
+        function renderTable() {
+            const tbody = document.getElementById('itemTableBody');
+            tbody.innerHTML = '';
+            let grandTotal = 0;
+
+            cartItems.forEach((item, index) => {
+                const subtotal = item.qty * item.price;
+                grandTotal += subtotal;
+                const isShort = item.qty > item.stock;
+                const tr = document.createElement('tr');
+                if (!item.is_valid) tr.classList.add('row-error');
+                
+                tr.innerHTML = `
+                    <td><strong>${item.sku}</strong>${!item.is_valid ? '<br><span style="font-size:11px; color:red;">Invalid</span>' : ''}</td>
+                    <td>${item.desc}</td>
+                    <td class="${isShort ? 'text-danger' : ''}">${item.stock.toLocaleString()}</td>
+                    <td class="text-right">${formatCurrency(item.price)}</td>
+                    <td class="text-right">${item.pack_size}</td>
+                    <td class="text-right"><input type="number" class="qty-input" value="${item.qty}" min="0" onchange="updateQty(${index}, this.value)"></td>
+                    <td class="text-right">${formatCurrency(subtotal)}</td>
+                    <td class="text-center"><button class="btn btn-secondary" style="padding:4px 8px;" onclick="removeItem(${index})">✕</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('grandTotal').textContent = formatCurrency(grandTotal);
+            const hasInvalid = cartItems.some(i => !i.is_valid);
+            const hasZeroQty = cartItems.some(i => i.qty <= 0);
+            document.getElementById('calculateBtn').disabled = cartItems.length === 0 || hasInvalid || hasZeroQty;
+        }
+
+        window.updateQty = (index, val) => { cartItems[index].qty = parseInt(val) || 0; renderTable(); };
+        window.removeItem = (index) => { cartItems.splice(index, 1); renderTable(); };
+
+        document.getElementById('calculateBtn').addEventListener('click', async () => {
+            const customer = document.getElementById('customerSearch').value.trim();
+            if (!customer) return alert("Please enter Customer Name");
+
+            const payload = {
+                order_info: {
+                    customer_name: customer,
+                    po_number: document.getElementById('poNumber').value,
+                    ship_window: document.getElementById('shipWindow').value,
+                    site: document.getElementById('siteSelect').value
+                },
+                items: cartItems
+            };
+
+            try {
+                const res = await fetch('/api/emd/process_order', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error("Processing failed");
+                const data = await res.json();
+                
+                const linksDiv = document.getElementById('downloadLinks');
+                linksDiv.innerHTML = '';
+                for (const [key, url] of Object.entries(data.files)) {
+                    if(url) linksDiv.innerHTML += `<a href="${url}" class="btn btn-primary" style="width:100%;">Download ${key}</a>`;
+                }
+                document.getElementById('itemListCard').style.display = 'none';
+                document.getElementById('resultSection').classList.remove('hidden');
+            } catch (err) { alert(err.message); }
+        });
+    </script>
+</body>
+</html>

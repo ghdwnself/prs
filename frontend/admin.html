@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - POReviewSystem</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        /* Admin Specific Styles */
+        .admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+        @media (max-width: 1000px) { .admin-grid { grid-template-columns: 1fr; } }
+
+        .setting-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed #eee; }
+        .setting-row:last-child { border-bottom: none; }
+        .setting-label { font-weight: 500; color: #555; }
+        .setting-input { width: 100px; text-align: right; padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+
+        .sku-result-card { background: #f0f9ff; border: 1px solid #bae6fd; padding: 16px; border-radius: 8px; margin-top: 16px; display: none; }
+        .sku-stat { display: inline-block; margin-right: 16px; font-size: 0.9rem; }
+        .sku-stat strong { color: #0284c7; }
+
+        .history-table th { background: #f8fafc; font-size: 0.85rem; }
+        .history-table td { font-size: 0.85rem; vertical-align: middle; }
+        .badge-mmd { background: #dcfce7; color: #166534; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+        .badge-emd { background: #fef9c3; color: #854d0e; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <nav class="sidebar">
+            <div class="sidebar-header">PO<span class="brand-highlight">Review</span></div>
+            <ul class="nav-links">
+                <li class="nav-item"><a href="index.html" class="nav-link"><span class="nav-icon">📊</span> Dashboard</a></li>
+                <li class="nav-item"><a href="mmd.html" class="nav-link"><span class="nav-icon">📄</span> MMD (Auto)</a></li>
+                <li class="nav-item"><a href="emd.html" class="nav-link"><span class="nav-icon">✍️</span> EMD (Manual)</a></li>
+                <li class="nav-item"><a href="admin.html" class="nav-link active"><span class="nav-icon">⚙️</span> Admin</a></li>
+            </ul>
+        </nav>
+
+        <main class="main-content">
+            <header class="top-header">
+                <div class="page-title">Admin Configuration</div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div id="firebaseStatus" style="font-size: 0.85rem; font-weight: 600; color: #64748b;">Checking...</div>
+                    <div class="user-profile"><span>Admin</span><div class="avatar">A</div></div>
+                </div>
+            </header>
+
+            <div class="content-body">
+                
+                <div class="admin-grid">
+                    <!-- 1. System Settings -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">⚙️ System Settings</div>
+                            <button class="btn btn-primary" onclick="saveSettings()" style="padding: 6px 12px; font-size: 13px;">Save</button>
+                        </div>
+                        <div id="settingsForm">
+                            <div class="setting-row">
+                                <span class="setting-label">Safety Stock (Qty)</span>
+                                <input type="number" id="safety_stock" class="setting-input">
+                            </div>
+                            <div class="setting-row">
+                                <span class="setting-label">Pallet Max Height (inch)</span>
+                                <input type="number" id="pallet_max_height" class="setting-input">
+                            </div>
+                            <div class="setting-row">
+                                <span class="setting-label">Pallet Max Weight (lbs)</span>
+                                <input type="number" id="pallet_max_weight" class="setting-input">
+                            </div>
+                            <div class="setting-row">
+                                <span class="setting-label">Pallet Base Weight (lbs)</span>
+                                <input type="number" id="pallet_base_weight" class="setting-input">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. SKU Quick Check -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">🔍 SKU Quick Check</div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="skuInput" class="form-control" placeholder="Enter SKU (e.g. 56250)">
+                            <button class="btn btn-secondary" onclick="checkSku()">Check</button>
+                        </div>
+                        
+                        <div id="skuResult" class="sku-result-card">
+                            <div style="font-weight: 700; margin-bottom: 8px; display:flex; justify-content:space-between;">
+                                <span id="resSku"></span>
+                                <span id="resSource" style="font-size:11px; color:#888;"></span>
+                            </div>
+                            <div id="resDesc" style="margin-bottom: 12px; color: #555;"></div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                <div class="sku-stat">Price: <strong id="resPrice"></strong></div>
+                                <div class="sku-stat">Stock: <strong id="resStock"></strong></div>
+                                <div class="sku-stat">Pack: <strong id="resPack"></strong></div>
+                                <div class="sku-stat">Wt/Ht: <strong id="resDim"></strong></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Data Sync (Existing) -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">☁️ Database Sync</div>
+                    </div>
+                    <div style="display: flex; gap: 16px;">
+                        <button class="btn btn-secondary" onclick="syncData('products')">Sync Products (CSV → DB)</button>
+                        <button class="btn btn-secondary" onclick="syncData('inventory')">Sync Inventory (CSV → DB)</button>
+                    </div>
+                </div>
+
+                <!-- 4. PO History -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">📜 PO Processing History</div>
+                        <button class="btn btn-secondary" onclick="loadHistory()" style="font-size: 12px;">Refresh</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Source</th>
+                                    <th>Customer / File</th>
+                                    <th>Downloads</th>
+                                    <th class="text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyTableBody">
+                                <tr><td colspan="5" class="text-center">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="assets/js/app.js"></script>
+    <script>
+        // --- Init ---
+        document.addEventListener('DOMContentLoaded', () => {
+            checkHealth();
+            loadSettings();
+            loadHistory();
+        });
+
+        // --- 1. Settings ---
+        async function loadSettings() {
+            try {
+                const res = await fetch('/api/admin/settings');
+                const json = await res.json();
+                const data = json.data;
+                document.getElementById('safety_stock').value = data.safety_stock;
+                document.getElementById('pallet_max_height').value = data.pallet_max_height;
+                document.getElementById('pallet_max_weight').value = data.pallet_max_weight;
+                document.getElementById('pallet_base_weight').value = data.pallet_base_weight;
+            } catch (e) { console.error(e); }
+        }
+
+        async function saveSettings() {
+            const payload = {
+                safety_stock: document.getElementById('safety_stock').value,
+                pallet_max_height: document.getElementById('pallet_max_height').value,
+                pallet_max_weight: document.getElementById('pallet_max_weight').value,
+                pallet_base_weight: document.getElementById('pallet_base_weight').value
+            };
+            try {
+                const res = await fetch('/api/admin/settings', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const json = await res.json();
+                alert(json.message);
+            } catch (e) { alert("Error saving settings"); }
+        }
+
+        // --- 2. SKU Check ---
+        async function checkSku() {
+            const sku = document.getElementById('skuInput').value.trim();
+            if(!sku) return;
+            
+            try {
+                const res = await fetch(`/api/admin/sku_check/${sku}`);
+                const json = await res.json();
+                const d = json.data;
+                
+                document.getElementById('resSku').textContent = d.sku;
+                document.getElementById('resSource').textContent = d.source;
+                document.getElementById('resDesc').textContent = d.desc;
+                document.getElementById('resPrice').textContent = `$${d.price}`;
+                document.getElementById('resStock').textContent = d.stock;
+                document.getElementById('resPack').textContent = d.pack;
+                document.getElementById('resDim').textContent = `${d.weight}lb / ${d.height}"`;
+                
+                document.getElementById('skuResult').style.display = 'block';
+            } catch (e) { alert("Error checking SKU"); }
+        }
+
+        // --- 3. History ---
+        async function loadHistory() {
+            const tbody = document.getElementById('historyTableBody');
+            try {
+                const res = await fetch('/api/admin/history');
+                const json = await res.json();
+                
+                tbody.innerHTML = '';
+                if (json.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center">No history found.</td></tr>';
+                    return;
+                }
+
+                json.data.forEach(item => {
+                    const badgeClass = item.source === 'MMD' ? 'badge-mmd' : 'badge-emd';
+                    const dateStr = new Date(item.timestamp).toLocaleString();
+                    
+                    let links = '';
+                    if (item.files) {
+                        for (const [key, url] of Object.entries(item.files)) {
+                            if(url) links += `<a href="${url}" target="_blank" style="margin-right:8px; font-size:12px;">[${key}]</a>`;
+                        }
+                    }
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${dateStr}</td>
+                        <td><span class="${badgeClass}">${item.source}</span></td>
+                        <td>
+                            <div style="font-weight:600;">${item.customer}</div>
+                            <div style="font-size:11px; color:#888;">${item.filename || '-'}</div>
+                        </td>
+                        <td>${links}</td>
+                        <td class="text-right">
+                            <button class="btn btn-secondary" style="padding:2px 6px; font-size:11px; color:red; border-color:#fca5a5;" 
+                                onclick="deleteHistory('${item.file_path.replace(/\\/g, '\\\\')}')">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (e) { tbody.innerHTML = '<tr><td colspan="5">Error loading history.</td></tr>'; }
+        }
+
+        async function deleteHistory(filePath) {
+            if(!confirm("Delete this record?")) return;
+            try {
+                await fetch('/api/admin/history', {
+                    method: 'DELETE', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ file_path: filePath })
+                });
+                loadHistory();
+            } catch (e) { alert("Delete failed"); }
+        }
+
+        // --- Common ---
+        async function checkHealth() {
+            const el = document.getElementById('firebaseStatus');
+            try {
+                const res = await fetch('/api/admin/health/firebase');
+                const d = await res.json();
+                el.textContent = d.status === 'ok' ? '🟢 Firebase Connected' : '🔴 Firebase Error';
+                el.style.color = d.status === 'ok' ? '#10b981' : '#ef4444';
+            } catch { el.textContent = '🔴 Server Error'; }
+        }
+
+        async function syncData(type) {
+            if(!confirm(`Sync ${type}? This overwrites DB data.`)) return;
+            try {
+                const res = await fetch(`/api/admin/sync/${type}`, { method: 'POST' });
+                const d = await res.json();
+                alert(d.message);
+            } catch(e) { alert("Sync failed"); }
+        }
+    </script>
+</body>
+</html>
