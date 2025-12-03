@@ -1,7 +1,11 @@
 import pdfplumber
 import pandas as pd
 import re
+import logging
 from typing import List, Dict, Any
+
+# 로깅 설정
+logger = logging.getLogger(__name__)
 
 def parse_po_to_order_data(pdf_path: str) -> tuple[List[pd.DataFrame], str, str]:
     """
@@ -60,11 +64,13 @@ def parse_po_to_order_data(pdf_path: str) -> tuple[List[pd.DataFrame], str, str]
                             pack_size = 0
                             try:
                                 if len(row) > 5 and row[5]: pack_size = int(row[5])
-                            except: pass
+                            except ValueError:
+                                logger.debug("Could not parse pack_size from column 5 for SKU %s", sku)
                             if pack_size == 0:
                                 try:
                                     if len(row) > 6 and row[6]: pack_size = int(row[6])
-                                except: pass
+                                except ValueError:
+                                    logger.debug("Could not parse pack_size from column 6 for SKU %s", sku)
                             
                             if pack_size == 0: continue
                                 
@@ -83,10 +89,12 @@ def parse_po_to_order_data(pdf_path: str) -> tuple[List[pd.DataFrame], str, str]
                                                 'UnitQuantity': unit_qty_total,
                                                 'DC_ID': dc_id
                                             })
-                                except: continue
+                                except (ValueError, TypeError) as e:
+                                    logger.debug("Skipping row for DC %s: %s", dc_id, e)
+                                    continue
 
     except Exception as e:
-        print(f"Error parsing PDF: {e}")
+        logger.error(f"Error parsing PDF: {e}")
         return [], "", "Error"
 
     result_dfs = []

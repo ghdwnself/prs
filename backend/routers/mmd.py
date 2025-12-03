@@ -3,37 +3,32 @@ from fastapi.responses import JSONResponse, FileResponse
 import os
 import shutil
 import math
+import logging
 import pandas as pd
 from datetime import datetime
 from typing import Dict, Any
 
-# 서비스 임포트
+# Config & Services
+from core.config import settings
 from services.po_parser import parse_po_to_order_data
 from services.palletizer import Palletizer
 from services.document_generator import DocumentGenerator
 from services.firebase_service import firebase_manager
 
+# 로깅 설정
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["MMD"])
-
-# 경로 설정 (상대 경로 문제 해결을 위해 설정)
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # backend/
-ROOT_DIR = os.path.dirname(BASE_DIR) # POReviewSystem/
-TEMP_DIR = os.path.join(ROOT_DIR, "temp") # 임시 폴더 (새로 생성 권장)
-OUTPUT_DIR = os.path.join(ROOT_DIR, "outputs")
-DATA_DIR = os.path.join(ROOT_DIR, "data")
-
-# 임시 폴더 생성
-os.makedirs(TEMP_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # DC 정보 로드 (캐싱)
 DC_LOOKUP = {}
-division_path = os.path.join(DATA_DIR, "TJX_PO_Template-division_info.csv")
+division_path = os.path.join(settings.DATA_DIR, "TJX_PO_Template-division_info.csv")
 if os.path.exists(division_path):
     try:
         df = pd.read_csv(division_path, dtype={'DC#': str})
         for _, row in df.iterrows(): DC_LOOKUP[str(row['DC#']).strip()] = row.to_dict()
-    except: pass
+    except Exception as e:
+        logger.error(f"Failed to load DC lookup CSV: {e}")
 
 # --- Helper Functions ---
 def get_inventory_data(sku_list):
@@ -59,7 +54,8 @@ def get_inventory_data(sku_list):
         try:
             docs = db.collection('inventory').where('sku', '==', sku).stream()
             for doc in docs: stock_sum += int(doc.to_dict().get('onHand', 0))
-        except: pass
+        except Exception as e:
+            logger.warning(f"Failed to fetch inventory for SKU {sku}: {e}")
 
         inventory_map[sku] = {'stock': stock_sum, **product_data}
     return inventory_map
@@ -69,7 +65,7 @@ def get_inventory_data(sku_list):
 @router.post("/analyze_po")
 async def analyze_po(file: UploadFile = File(...)):
     try:
-        file_path = os.path.join(TEMP_DIR, file.filename)
+        file_path = os.path.join(settings.TEMP_DIR, file.filename)
         with open(file_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
         
         dc_dfs, po_num, ship_window = parse_po_to_order_data(file_path)
@@ -128,14 +124,14 @@ async def analyze_po(file: UploadFile = File(...)):
         # Excel Creation
         df = pd.DataFrame(analysis_result)
         fname = f"Worksheet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        df.to_excel(os.path.join(OUTPUT_DIR, fname), index=False)
+        df.to_excel(os.path.join(settings.OUTPUT_DIR, fname), index=False)
         
         return JSONResponse({
             "status": "success", "summary": summary, "po_number": po_num, "ship_window": ship_window,
             "worksheet_url": f"/api/download/{fname}", "raw_data": analysis_result
         })
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error analyzing PO: {e}")
         raise HTTPException(500, str(e))
 
 @router.post("/calculate_pallets")
@@ -148,7 +144,7 @@ async def calculate_pallets(payload: Dict[str, Any] = Body(...)):
         
         data_rows = []
         if source_type == 'excel':
-            file_path = os.path.join(TEMP_DIR, payload.get('filename'))
+            file_path = os.path.join(settings.TEMP_DIR, payload.get('filename'))
             data_rows = pd.read_excel(file_path).to_dict('records')
         else:
             data_rows = payload.get('data', [])
@@ -177,7 +173,7 @@ async def calculate_pallets(payload: Dict[str, Any] = Body(...)):
         palletizer = Palletizer()
         pallets = palletizer.calculate_pallets(pallet_input)
         
-        doc_gen = DocumentGenerator(OUTPUT_DIR)
+        doc_gen = DocumentGenerator(settings.OUTPUT_DIR)
         pl_url, pl_df = doc_gen.generate_packing_list(pallets, DC_LOOKUP)
         import_url = doc_gen.generate_order_import(pl_df, DC_LOOKUP, site_name, po_number, ship_window)
         
@@ -187,13 +183,13 @@ async def calculate_pallets(payload: Dict[str, Any] = Body(...)):
             "pallet_plan": pallets
         })
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error calculating pallets: {e}")
         raise HTTPException(500, str(e))
 
 @router.post("/upload_temp_excel")
 async def upload_temp_excel(file: UploadFile = File(...)):
     try:
-        path = os.path.join(TEMP_DIR, file.filename)
+        path = os.path.join(settings.TEMP_DIR, file.filename)
         with open(path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
         return {"status": "success", "filename": file.filename}
     except Exception as e: raise HTTPException(500, str(e))
