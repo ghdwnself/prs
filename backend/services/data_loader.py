@@ -13,9 +13,14 @@ class DataLoader:
     def __init__(self):
         self.data_dir = settings.DATA_DIR
         # 메모리 캐시 (Fallback용)
-        self.products = {}
-        self.inventory = {}
+        # Renamed for clarity: products -> product_map, inventory -> inventory_map
+        self.product_map = {}
+        self.inventory_map = {}
         self.buyers = []
+        
+        # Legacy aliases for backward compatibility
+        self.products = self.product_map
+        self.inventory = self.inventory_map
 
     def _clean_nan(self, val, default):
         """NaN 값을 기본값으로 변환"""
@@ -34,19 +39,40 @@ class DataLoader:
                 df = pd.read_csv(p_path, dtype={'SKU': str})
                 for _, row in df.iterrows():
                     sku = str(row.get('SKU', '')).strip()
-                    if sku: self.products[sku] = row.to_dict()
-                logger.info(f"Products loaded: {len(self.products)}")
+                    if sku: 
+                        self.product_map[sku] = row.to_dict()
+                logger.info(f"Products loaded: {len(self.product_map)}")
             except Exception as e:
                 logger.error(f"Failed to load products CSV: {e}")
 
-        # Inventory
+        # Inventory - Now with location details preserved (MAIN vs SUB)
         i_path = os.path.join(self.data_dir, "inventory_template.csv")
         if os.path.exists(i_path):
             try:
                 df = pd.read_csv(i_path, dtype={'sku': str})
-                grouped = df.groupby('sku')['onHand'].sum()
-                self.inventory = grouped.to_dict()
-                logger.info(f"Inventory loaded: {len(self.inventory)}")
+                for _, row in df.iterrows():
+                    sku = str(row.get('sku', '')).strip()
+                    if not sku:
+                        continue
+                    
+                    # Normalize location to uppercase (e.g., 'Main' -> 'MAIN')
+                    location = str(row.get('location', 'MAIN')).strip().upper()
+                    on_hand = int(self._clean_nan(row.get('onHand'), 0))
+                    
+                    if sku not in self.inventory_map:
+                        self.inventory_map[sku] = {
+                            "total": 0,
+                            "locations": {}
+                        }
+                    
+                    # Add to location-specific count
+                    if location not in self.inventory_map[sku]["locations"]:
+                        self.inventory_map[sku]["locations"][location] = 0
+                    
+                    self.inventory_map[sku]["locations"][location] += on_hand
+                    self.inventory_map[sku]["total"] += on_hand
+                    
+                logger.info(f"Inventory loaded: {len(self.inventory_map)} SKUs")
             except Exception as e:
                 logger.error(f"Failed to load inventory CSV: {e}")
 

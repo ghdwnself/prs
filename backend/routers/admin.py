@@ -118,10 +118,16 @@ async def delete_po_history(payload: Dict[str, str] = Body(...)):
 
 @router.get("/sku_check/{sku}")
 async def check_sku(sku: str):
+    """
+    Check SKU details including inventory split by location (MAIN/SUB).
+    """
     target_sku = str(sku).strip()
     
-    # 기본 정보 (CSV 메모리)
-    csv_info = data_loader.products.get(target_sku, {})
+    # 기본 정보 (CSV 메모리) - Use product_map instead of products
+    csv_info = data_loader.product_map.get(target_sku, {})
+    
+    # Get inventory from memory cache - Use inventory_map instead of inventory
+    inv_info = data_loader.inventory_map.get(target_sku, {"total": 0, "locations": {}})
     
     result = {
         "sku": target_sku,
@@ -131,7 +137,11 @@ async def check_sku(sku: str):
         "pack": int(csv_info.get('UnitsPerCase') or 1),
         "weight": float(csv_info.get('MasterCarton_Weight_lbs') or 0),
         "height": float(csv_info.get('MasterCarton_Height_inches') or 0),
-        "stock": 0
+        "stock": inv_info.get("total", 0),
+        # New: Split inventory by location
+        "stock_main": inv_info.get("locations", {}).get("MAIN", 0),
+        "stock_sub": inv_info.get("locations", {}).get("SUB", 0),
+        "locations": inv_info.get("locations", {}),
     }
     
     if csv_info:
@@ -154,12 +164,24 @@ async def check_sku(sku: str):
                     "height": float(d.get('MasterCarton_Height_inches') or result['height']),
                 })
             
-            # Inventory (Sum)
-            stock_sum = 0
+            # Inventory with location split (MAIN vs SUB)
+            locations = {}
+            total_stock = 0
             docs = db.collection('inventory').where('sku', '==', target_sku).stream()
             for d in docs:
-                stock_sum += int(d.to_dict().get('onHand', 0))
-            result['stock'] = stock_sum
+                doc_data = d.to_dict()
+                on_hand = int(doc_data.get('onHand', 0))
+                location = str(doc_data.get('location', 'MAIN')).strip().upper()
+                
+                if location not in locations:
+                    locations[location] = 0
+                locations[location] += on_hand
+                total_stock += on_hand
+            
+            result['stock'] = total_stock
+            result['stock_main'] = locations.get('MAIN', 0)
+            result['stock_sub'] = locations.get('SUB', 0)
+            result['locations'] = locations
             
         except Exception as e:
             result['error'] = str(e)
