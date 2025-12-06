@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 STATUS_OK = "OK"
 STATUS_MAIN_SHORT = "⚠️ Main Short. Transfer from Sub"
 STATUS_OUT_OF_STOCK = "🚨 Out of Stock"
-STATUS_PRICE_MISMATCH = "💰 Price Mismatch"
 
 
 def validate_po_data(

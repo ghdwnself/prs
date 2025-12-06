@@ -257,7 +257,11 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
 def parse_po_to_order_data(pdf_path: str) -> Tuple[List[Dict[str, Any]], str, str]:
     """
     Legacy wrapper that converts new parse_po output to old format.
-    Returns: (List of item dicts grouped by DC, Extracted PO Number, Extracted Ship Window)
+    Returns: (Flat list of parsed item dicts, Extracted PO Number, Extracted Ship Window)
+    
+    Note: Unlike the old implementation that returned DataFrames, this returns 
+    a flat list of dicts. Each dict contains parsed PO item data with 
+    dc_id, sku, description, quantities, and pricing information.
     """
     parsed_items, error = parse_po(pdf_path)
     
