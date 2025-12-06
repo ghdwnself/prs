@@ -6,14 +6,16 @@ import math
 import logging
 import pandas as pd
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 # Config & Services
 from core.config import settings
-from services.po_parser import parse_po_to_order_data
+from services.po_parser import parse_po, parse_po_to_order_data
+from services.validator import validate_po_data, get_validation_summary
 from services.palletizer import Palletizer
 from services.document_generator import DocumentGenerator
 from services.firebase_service import firebase_manager
+from services.data_loader import data_loader
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -31,104 +33,221 @@ if os.path.exists(division_path):
         logger.error(f"Failed to load DC lookup CSV: {e}")
 
 # --- Helper Functions ---
-def get_inventory_data(sku_list):
+def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:
+    """
+    Fetch inventory data from Firebase with location details.
+    Returns inventory map with MAIN/SUB split.
+    """
     db = firebase_manager.get_db()
     inventory_map = {}
-    if not db: return inventory_map
     
     for sku in sku_list:
+        sku = str(sku).strip()
         product_data = {'price': 0.0, 'pack_size': 1, 'weight': 15.0, 'height': 10.0, 'name': ''}
         
         # 1. Product Info
-        prod_doc = db.collection('products').document(sku).get()
-        if prod_doc.exists:
-            p = prod_doc.to_dict()
-            product_data['price'] = float(p.get('KeyAccountPrice_TJX', 0.0) or 0.0)
-            product_data['pack_size'] = int(p.get('UnitsPerCase', 1) or 1)
-            product_data['weight'] = float(p.get('MasterCarton_Weight_lbs', 15.0) or 15.0)
-            product_data['height'] = float(p.get('MasterCarton_Height_inches', 10.0) or 10.0)
-            product_data['name'] = p.get('ProductName_Short', '')
+        if db:
+            try:
+                prod_doc = db.collection('products').document(sku).get()
+                if prod_doc.exists:
+                    p = prod_doc.to_dict()
+                    product_data['price'] = float(p.get('KeyAccountPrice_TJX', 0.0) or 0.0)
+                    product_data['pack_size'] = int(p.get('UnitsPerCase', 1) or 1)
+                    product_data['weight'] = float(p.get('MasterCarton_Weight_lbs', 15.0) or 15.0)
+                    product_data['height'] = float(p.get('MasterCarton_Height_inches', 10.0) or 10.0)
+                    product_data['name'] = p.get('ProductName_Short', '')
+            except Exception as e:
+                logger.warning(f"Failed to fetch product info for SKU {sku}: {e}")
+        
+        # Fallback to memory cache if no Firebase data
+        if not product_data['name'] and sku in data_loader.product_map:
+            cached = data_loader.product_map[sku]
+            product_data['price'] = float(cached.get('KeyAccountPrice_TJX', 0.0) or 0.0)
+            product_data['pack_size'] = int(cached.get('UnitsPerCase', 1) or 1)
+            product_data['weight'] = float(cached.get('MasterCarton_Weight_lbs', 15.0) or 15.0)
+            product_data['height'] = float(cached.get('MasterCarton_Height_inches', 10.0) or 10.0)
+            product_data['name'] = cached.get('ProductName_Short', '')
 
-        # 2. Inventory Stock (Sum)
-        stock_sum = 0
-        try:
-            docs = db.collection('inventory').where('sku', '==', sku).stream()
-            for doc in docs: stock_sum += int(doc.to_dict().get('onHand', 0))
-        except Exception as e:
-            logger.warning(f"Failed to fetch inventory for SKU {sku}: {e}")
+        # 2. Inventory Stock with Location Details (MAIN vs SUB)
+        locations = {'MAIN': 0, 'SUB': 0}
+        total_stock = 0
+        
+        if db:
+            try:
+                docs = db.collection('inventory').where('sku', '==', sku).stream()
+                for doc in docs:
+                    doc_data = doc.to_dict()
+                    on_hand = int(doc_data.get('onHand', 0))
+                    location = str(doc_data.get('location', 'MAIN')).strip().upper()
+                    
+                    if location not in locations:
+                        locations[location] = 0
+                    locations[location] += on_hand
+                    total_stock += on_hand
+            except Exception as e:
+                logger.warning(f"Failed to fetch inventory for SKU {sku}: {e}")
+        
+        # Fallback to memory cache
+        if total_stock == 0 and sku in data_loader.inventory_map:
+            cached_inv = data_loader.inventory_map[sku]
+            locations = cached_inv.get('locations', {'MAIN': 0, 'SUB': 0}).copy()
+            total_stock = cached_inv.get('total', 0)
 
-        inventory_map[sku] = {'stock': stock_sum, **product_data}
+        inventory_map[sku] = {
+            'total': total_stock,
+            'locations': locations,
+            **product_data
+        }
+    
     return inventory_map
 
 # --- API Endpoints ---
 
 @router.post("/analyze_po")
 async def analyze_po(file: UploadFile = File(...)):
+    """
+    Analyze PO PDF file using new dynamic parser and validator.
+    Returns validated items with MAIN/SUB inventory status.
+    """
     try:
         file_path = os.path.join(settings.TEMP_DIR, file.filename)
-        with open(file_path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
+        with open(file_path, "wb") as buffer: 
+            shutil.copyfileobj(file.file, buffer)
         
-        dc_dfs, po_num, ship_window = parse_po_to_order_data(file_path)
+        # Use the new parser that returns List[Dict]
+        parsed_items, po_num, ship_window = parse_po_to_order_data(file_path)
         
-        all_skus = set()
-        parsed_items = []
-        for df in dc_dfs:
-            if df.empty: continue
-            dc_id = str(df['DC_ID'].iloc[0])
-            for rec in df.to_dict('records'):
-                sku = str(rec['SKU'])
-                all_skus.add(sku)
-                parsed_items.append({
-                    'dc_id': dc_id, 'sku': sku, 'desc': rec.get('Description', ''),
-                    'po_qty': int(rec.get('UnitQuantity', 0)),
-                    'pdf_pack': int(rec.get('PackSize', 0))
-                })
+        # Check for parsing errors
+        if not parsed_items:
+            return JSONResponse({
+                "status": "error",
+                "message": "No valid data found in PO PDF",
+                "po_number": po_num,
+                "ship_window": ship_window
+            }, status_code=400)
         
-        inv_map = get_inventory_data(list(all_skus))
+        # Extract all SKUs for inventory lookup
+        all_skus = list(set(str(item.get('sku', '')).strip() for item in parsed_items))
+        
+        # Fetch inventory data with MAIN/SUB split
+        inv_map = get_inventory_data(all_skus)
+        
+        # Convert inv_map to format expected by validator
+        validator_inv_map = {}
+        for sku, data in inv_map.items():
+            validator_inv_map[sku] = {
+                'total': data.get('total', 0),
+                'locations': data.get('locations', {'MAIN': 0, 'SUB': 0})
+            }
+        
+        # Build product_map for validator
+        validator_prod_map = {}
+        for sku, data in inv_map.items():
+            validator_prod_map[sku] = {
+                'KeyAccountPrice_TJX': data.get('price', 0.0)
+            }
+        
+        # Validate PO data using the new validator
+        validated_items = validate_po_data(
+            parsed_items,
+            inventory_map=validator_inv_map,
+            product_map=validator_prod_map,
+            safety_stock=50  # TODO: Load from config
+        )
+        
+        # Get validation summary
+        validation_summary = get_validation_summary(validated_items)
+        
+        # Build analysis result for frontend/Excel (backward compatible format)
         analysis_result = []
-        summary = {'total_skus': len(all_skus), 'total_units': 0, 'total_cartons': 0, 'total_amount': 0.0, 'shortage_skus_count': 0, 'dcs': {}}
-
-        for item in parsed_items:
-            sku = item['sku']
-            inv = inv_map.get(sku, {'stock': 0, 'price': 0, 'pack_size': 1})
+        summary = {
+            'total_skus': len(all_skus),
+            'total_units': 0,
+            'total_cartons': 0,
+            'total_amount': 0.0,
+            'shortage_skus_count': 0,
+            'ok_count': validation_summary['ok_count'],
+            'main_short_count': validation_summary['main_short_count'],
+            'out_of_stock_count': validation_summary['out_of_stock_count'],
+            'dcs': {}
+        }
+        
+        for item in validated_items:
+            sku = str(item.get('sku', '')).strip()
+            dc_id = str(item.get('dc_id', '')) or 'N/A'
+            po_qty = int(item.get('po_qty', 0))
+            pack_size = int(item.get('pack_size', 1))
+            if pack_size < 1:
+                pack_size = 1
             
-            pack_size = inv['pack_size'] if inv['pack_size'] > 1 else (item['pdf_pack'] if item['pdf_pack'] > 0 else 1)
-            required = item['po_qty'] + 50 # Safety Stock
-            shortage = max(0, required - inv['stock'])
-            case_qty = math.ceil(item['po_qty'] / pack_size)
-            total_price = item['po_qty'] * inv['price']
+            # Get price from inventory map
+            inv = inv_map.get(sku, {'price': 0.0, 'pack_size': 1})
+            price = float(inv.get('price', 0.0))
+            case_qty = math.ceil(po_qty / pack_size)
+            total_price = po_qty * price
+            
+            # Get inventory details
+            main_stock = int(item.get('main_stock', 0))
+            sub_stock = int(item.get('sub_stock', 0))
+            total_stock = int(item.get('total_stock', 0))
+            remaining_shortage = int(item.get('remaining_shortage', 0))
             
             analysis_result.append({
-                'DC #': item['dc_id'], 'SKU': sku, 'Description': inv.get('name') or item['desc'],
-                'PO Qty (Units)': item['po_qty'], 'Pack Size': pack_size,
-                'Current Stock': inv['stock'], 'Shortage': shortage,
-                'PO Price': inv['price'], 'Total Amount': total_price,
-                'Final Qty (Units)': item['po_qty']
+                'DC #': dc_id,
+                'SKU': sku,
+                'Description': str(item.get('description', '')),
+                'PO Qty (Units)': po_qty,
+                'Pack Size': pack_size,
+                'Main Stock': main_stock,
+                'Sub Stock': sub_stock,
+                'Total Stock': total_stock,
+                'Shortage': remaining_shortage,
+                'Status': item.get('status', 'OK'),
+                'PO Price': price,
+                'Unit Cost': float(item.get('unit_cost', 0.0)),
+                'Total Amount': total_price,
+                'Final Qty (Units)': po_qty,
+                'Sales Order #': item.get('sales_order_num', ''),
+                'Price Warning': item.get('price_warning', ''),
             })
             
             # Summary Logic
-            summary['total_units'] += item['po_qty']
+            summary['total_units'] += po_qty
             summary['total_cartons'] += case_qty
             summary['total_amount'] += total_price
-            if item['dc_id'] not in summary['dcs']:
-                summary['dcs'][item['dc_id']] = {'units': 0, 'cartons': 0, 'amount': 0.0, 'shortage_items': []}
             
-            dc_sum = summary['dcs'][item['dc_id']]
-            dc_sum['units'] += item['po_qty']
+            if dc_id not in summary['dcs']:
+                summary['dcs'][dc_id] = {
+                    'units': 0,
+                    'cartons': 0,
+                    'amount': 0.0,
+                    'shortage_items': []
+                }
+            
+            dc_sum = summary['dcs'][dc_id]
+            dc_sum['units'] += po_qty
             dc_sum['cartons'] += case_qty
             dc_sum['amount'] += total_price
-            if shortage > 0:
+            
+            if remaining_shortage > 0:
                 summary['shortage_skus_count'] += 1
-                dc_sum['shortage_items'].append({'sku': sku, 'short': shortage})
-
+                dc_sum['shortage_items'].append({
+                    'sku': sku,
+                    'short': remaining_shortage
+                })
+        
         # Excel Creation
         df = pd.DataFrame(analysis_result)
         fname = f"Worksheet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         df.to_excel(os.path.join(settings.OUTPUT_DIR, fname), index=False)
         
         return JSONResponse({
-            "status": "success", "summary": summary, "po_number": po_num, "ship_window": ship_window,
-            "worksheet_url": f"/api/download/{fname}", "raw_data": analysis_result
+            "status": "success",
+            "summary": summary,
+            "po_number": po_num,
+            "ship_window": ship_window,
+            "worksheet_url": f"/api/download/{fname}",
+            "raw_data": analysis_result
         })
     except Exception as e:
         logger.error(f"Error analyzing PO: {e}")

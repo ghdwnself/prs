@@ -6,15 +6,28 @@ class DocumentGenerator:
     def __init__(self, output_dir):
         self.output_dir = output_dir
 
-    def generate_order_import(self, packing_list_df, dc_lookup, site_name, po_number, ship_window):
+    def generate_order_import(self, packing_list_df, dc_lookup, site_name, po_number, ship_window, unit_costs=None):
         """
         Order Import (QB) 엑셀 생성
+        
+        Args:
+            packing_list_df: DataFrame with packing list data
+            dc_lookup: DC information lookup dict
+            site_name: Site name for the order
+            po_number: PO number
+            ship_window: Ship window string
+            unit_costs: Optional dict mapping SKU to unit_cost (for Mother PO pricing)
         """
         import_rows = []
+        
+        # Build unit_cost lookup if not provided
+        if unit_costs is None:
+            unit_costs = {}
         
         for _, row in packing_list_df.iterrows():
             dc_id = str(row['DC #'])
             dc_info = dc_lookup.get(dc_id, {})
+            sku = str(row.get('SKU', ''))
             
             # Mapping Logic
             customer = dc_info.get('Customer', f"Unknown DC {dc_id}")
@@ -31,14 +44,22 @@ class DocumentGenerator:
             # Sales Order #: "SO-PREFIX-PO#"
             sales_order_num = f"SO-{prefix}-{po_number}" if po_number else f"SO-{prefix}-{datetime.now().strftime('%m%d')}"
 
+            # Get unit_cost for this SKU (>0 for Mother PO, 0 for DC PO)
+            # Check row first, then fallback to unit_costs dict
+            item_unit_cost = 0.0
+            if 'unit_cost' in row and row['unit_cost']:
+                item_unit_cost = float(row['unit_cost'])
+            elif sku in unit_costs:
+                item_unit_cost = float(unit_costs.get(sku, 0.0))
+
             import_rows.append({
                 'Customer': customer,
                 'trandate': datetime.now().strftime("%m/%d/%Y"),
                 'otherrefnum': final_po_ref,
                 'memo': f"Ship Window: {ship_window}", 
-                'itemLine_item': row['SKU'],
+                'itemLine_item': sku,
                 'itemLine_quantity': row['Qty (Cases)'],
-                'itemLine_salesPrice': 0, # 가격 정보는 별도 로직 필요 (현재는 0)
+                'itemLine_salesPrice': item_unit_cost,  # Map to unit_cost from parsed data
                 'Site': site_name,
                 'Sales Order #': sales_order_num,
                 'Template': 'Sales Order Template'
@@ -68,7 +89,8 @@ class DocumentGenerator:
                     'SKU': item['sku'],
                     'Description': item['desc'],
                     'Qty (Cases)': item['qty'],
-                    'Unit Qty': item.get('unit_qty', 0)
+                    'Unit Qty': item.get('unit_qty', 0),
+                    'unit_cost': item.get('unit_cost', 0.0),  # Include unit_cost for order import
                 })
         
         df = pd.DataFrame(rows)
