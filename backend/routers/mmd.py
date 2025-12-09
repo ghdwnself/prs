@@ -252,8 +252,12 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
                 if shortage > 0:
                     status_message = (status_message + " / " if status_message else "") + f"부족 {shortage}ea"
 
-                inv_price = inv_entry.get('price', None)
-                base_price = float(inv_price) if inv_price not in [None, ""] else float(po_cost)
+                inv_price_raw = inv_entry.get('price', None)
+                try:
+                    inv_price = float(inv_price_raw) if inv_price_raw not in [None, ""] else None
+                except (ValueError, TypeError):
+                    inv_price = None
+                base_price = inv_price if inv_price is not None else float(po_cost)
                 system_amount = base_price * po_qty
                 po_amount = po_cost * po_qty
 
@@ -320,7 +324,7 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
         try:
             rows_for_csv = []
             for row in mother_validated + dc_validated:
-                # 혼합 컬럼 명은 요청된 워크시트 포맷 유지 (국/영 병기)
+                # Keep mixed-language column headers per requested worksheet format (KO/EN)
                 rows_for_csv.append({
                     "DC#": row['dc_id'],
                     "Child PO#": row['po_number'],

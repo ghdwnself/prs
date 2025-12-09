@@ -134,6 +134,7 @@
     
     <script src="assets/js/app.js"></script>
     <script>
+        const SAFETY_STOCK = 60;
         let motherPoData = null;
         let dcPoData = null;
         
@@ -194,11 +195,13 @@
                 validateBtn.disabled = true;
                 validateBtn.textContent = '🔄 Validating...';
                 
+                const scopeEl = document.querySelector('input[name="invScope"]:checked');
+                const scopeVal = scopeEl ? scopeEl.value : 'ALL';
                 const payload = {
                     mother_po_items: motherPoData,
                     dc_po_items: dcPoData,
-                    inventory_scope: document.querySelector('input[name="invScope"]:checked').value,
-                    safety_stock: 60
+                    inventory_scope: scopeVal,
+                    safety_stock: SAFETY_STOCK
                 };
                 
                 const res = await fetch('/api/validate_dc_allocation', {
