@@ -10,7 +10,7 @@ from services.data_loader import data_loader
 # 로깅 설정
 logger = logging.getLogger(__name__)
 
-# Status constants
+# Status constants (price/product labels remain localized per requirements)
 STATUS_OK = "OK"
 STATUS_INVENTORY_LOW = "⚠️ Inventory Low"
 STATUS_OUT_OF_STOCK = "🚨 Out of Stock"
@@ -163,7 +163,7 @@ def get_validation_summary(validated_items: List[Dict[str, Any]]) -> Dict[str, A
         'total_items': len(validated_items),
         'ok_count': 0,
         'out_of_stock_count': 0,
-        'main_short_count': 0,
+        'inventory_low_count': 0,
         'price_mismatch_count': 0,
         'total_units': 0,
         'total_shortage': 0,
@@ -186,7 +186,7 @@ def get_validation_summary(validated_items: List[Dict[str, Any]]) -> Dict[str, A
         if shortage_val == 0 and inventory_status_val == STATUS_OK:
             summary['ok_count'] += 1
         elif inventory_status_val == STATUS_INVENTORY_LOW or (shortage_val > 0 and available_stock > 0):
-            summary['main_short_count'] += 1
+            summary['inventory_low_count'] += 1
         elif shortage_val > 0 or inventory_status_val == STATUS_OUT_OF_STOCK:
             summary['out_of_stock_count'] += 1
         

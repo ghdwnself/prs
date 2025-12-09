@@ -265,7 +265,7 @@ async def analyze_po(
             'total_amount': 0.0,
             'shortage_skus_count': 0,
             'ok_count': validation_summary['ok_count'],
-            'main_short_count': validation_summary['main_short_count'],
+            'inventory_low_count': validation_summary['inventory_low_count'],
             'out_of_stock_count': validation_summary['out_of_stock_count'],
             'dcs': {}
         }
