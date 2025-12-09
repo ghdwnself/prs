@@ -86,6 +86,7 @@ def validate_po_data(
         prod_data = product_map.get(sku, {})
         system_cost = float(prod_data.get('KeyAccountPrice_TJX', 0.0) or 0.0)
 
+        # Safety stock is applied to available stock (not added to required quantity)
         required_qty = po_qty
         shortage = max(0, required_qty - available_stock)
 
@@ -102,7 +103,7 @@ def validate_po_data(
             transfer_from_sub = min(available_sub, shortage)
         remaining_shortage = max(0, shortage - transfer_from_sub)
 
-        # Price check (Mother PO prioritised, but applied when both values exist)
+        # Price check (Mother PO prioritized, but applied when both values exist)
         status_label = STATUS_OK
         price_warning = ""
         if not prod_data:
@@ -114,7 +115,7 @@ def validate_po_data(
         elif system_cost == 0:
             status_label = STATUS_PRODUCT_MISSING
 
-        # Final status prioritises product/price issues over inventory, but keeps inventory flag
+        # Final status prioritizes product/price issues over inventory, but keeps inventory flag
         status = inventory_status if status_label == STATUS_OK else status_label
         
         # Build validated item

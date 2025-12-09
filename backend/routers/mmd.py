@@ -31,6 +31,15 @@ if os.path.exists(division_path):
     except Exception as e:
         logger.error(f"Failed to load DC lookup CSV: {e}")
 
+def _safe_int(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+def _get_stock_value(data: Dict[str, Any], primary_key: str) -> int:
+    return _safe_int(data.get(primary_key))
+
 # --- Helper Functions ---
 def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:
     """
@@ -273,13 +282,6 @@ async def analyze_po(
             'out_of_stock_count': validation_summary['out_of_stock_count'],
             'dcs': {}
         }
-
-        def _get_stock_value(data: Dict[str, Any], primary_key: str) -> int:
-            value = data.get(primary_key, None)
-            try:
-                return int(value) if value is not None else 0
-            except (TypeError, ValueError):
-                return 0
         
         for item in validated_items:
             sku = str(item.get('sku', '')).strip()

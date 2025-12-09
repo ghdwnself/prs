@@ -3,6 +3,12 @@ import pandas as pd
 import os
 from datetime import datetime
 
+def _safe_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
 class DocumentGenerator:
     def __init__(self, output_dir):
         self.output_dir = output_dir
@@ -80,12 +86,6 @@ class DocumentGenerator:
             DC_ID, Child_PO, SKU, Customer_Qty_Cases, Modified_Qty_Cases,
             Current_Stock_MAIN, Current_Stock_SUB, Status_Label, Memo_Action
         """
-        def _safe_int(value):
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return 0
-
         rows = []
         for item in validated_items:
             po_qty = int(item.get('po_qty', 0))
