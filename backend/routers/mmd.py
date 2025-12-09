@@ -237,7 +237,8 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
                 except (ValueError, TypeError):
                     po_qty = 0
                 try:
-                    po_cost = float(item.get('unit_cost', 0.0) or 0.0)
+                    raw_cost = item.get('unit_cost', 0.0)
+                    po_cost = float(raw_cost) if raw_cost not in [None, ""] else 0.0
                 except (ValueError, TypeError):
                     po_cost = 0.0
 
@@ -300,6 +301,9 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
         mother_sys_amount = sum(r['system_amount'] for r in mother_validated)
         child_sys_amount = sum(r['system_amount'] for r in dc_validated)
 
+        qty_match = mother_tot_units == child_tot_units
+        amount_match = abs(child_sys_amount - mother_sys_amount) < PRICE_TOLERANCE
+
         totals_check = {
             "mother_units": mother_tot_units,
             "child_units": child_tot_units,
@@ -308,7 +312,7 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
             "mother_amount_po": mother_po_total_amount,
             "child_amount_system": child_sys_amount,
             "amount_diff": child_sys_amount - mother_sys_amount,
-            "match": mother_tot_units == child_tot_units and abs(child_sys_amount - mother_sys_amount) < PRICE_TOLERANCE,
+            "match": qty_match and amount_match,
         }
 
         # CSV worksheet for exceptions / editing
@@ -316,6 +320,7 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
         try:
             rows_for_csv = []
             for row in mother_validated + dc_validated:
+                # 혼합 컬럼 명은 요청된 워크시트 포맷 유지 (국/영 병기)
                 rows_for_csv.append({
                     "DC#": row['dc_id'],
                     "Child PO#": row['po_number'],
