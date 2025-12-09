@@ -25,6 +25,13 @@
         .status-under { background-color: #fee2e2; color: #991b1b; padding: 4px 8px; border-radius: 4px; font-weight: 600; }
         .status-extra { background-color: #fce7f3; color: #831843; padding: 4px 8px; border-radius: 4px; font-weight: 600; }
         .success-banner { background: #d1fae5; color: #065f46; padding: 16px; border-radius: 6px; text-align: center; font-weight: 600; }
+        .scope-toggle { display: flex; gap: 12px; align-items: center; margin: 16px 0; }
+        .scope-pill { border: 1px solid var(--border-color); border-radius: 30px; padding: 8px 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; background: #fff; }
+        .scope-pill input { margin: 0; }
+        .exception-panel { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-top: 16px; }
+        .exception-panel h5 { margin: 0 0 8px 0; }
+        .exception-chip { display: inline-block; margin-right: 8px; background: #fee2e2; color: #991b1b; padding: 4px 8px; border-radius: 12px; font-weight: 600; font-size: 0.85rem; }
+        .exception-chip.ok { background: #d1fae5; color: #166534; }
     </style>
 </head>
 <body>
@@ -76,6 +83,13 @@
                         </div>
                     </div>
                     
+                    <div class="scope-toggle">
+                        <label class="scope-pill"><input type="radio" name="invScope" value="ALL" checked> MAIN + SUB (기본)</label>
+                        <label class="scope-pill"><input type="radio" name="invScope" value="MAIN"> MAIN만</label>
+                        <label class="scope-pill"><input type="radio" name="invScope" value="SUB"> SUB만</label>
+                        <span style="color: var(--text-muted); font-size: 0.9rem;">안전재고 60 차감 후 비교</span>
+                    </div>
+                    
                     <div style="text-align: center;">
                         <button id="validateBtn" class="btn btn-primary" disabled>
                             🔍 Validate Allocations
@@ -88,6 +102,12 @@
                         <h3 style="margin-bottom: 16px;">Validation Results</h3>
                         
                         <div id="resultSummary"></div>
+                        <div id="inventorySummary" style="margin-top: 12px;"></div>
+                        <div id="exceptionPanel" class="exception-panel" style="display:none;">
+                            <h5>Exceptions</h5>
+                            <div id="exceptionChips"></div>
+                            <div id="worksheetLinkWrap" style="margin-top:8px;"></div>
+                        </div>
                         
                         <div id="mismatchSection" style="margin-top: 24px;">
                             <h4 style="margin-bottom: 12px;">Allocation Mismatches</h4>
@@ -176,7 +196,9 @@
                 
                 const payload = {
                     mother_po_items: motherPoData,
-                    dc_po_items: dcPoData
+                    dc_po_items: dcPoData,
+                    inventory_scope: document.querySelector('input[name="invScope"]:checked').value,
+                    safety_stock: 60
                 };
                 
                 const res = await fetch('/api/validate_dc_allocation', {
@@ -186,7 +208,7 @@
                 });
                 
                 const result = await res.json();
-                displayValidationResults(result.validation);
+                displayValidationResults(result);
                 
                 validateBtn.disabled = false;
                 validateBtn.textContent = '🔍 Validate Allocations';
@@ -198,9 +220,16 @@
             }
         });
         
-        function displayValidationResults(validation) {
+        function displayValidationResults(result) {
+            const validation = result.validation || {};
+            const mismatches = validation.mismatches || [];
+            const totalMother = validation.total_skus_mother || 0;
+            const inventorySummary = result.inventory_summary || {};
+            const exceptions = result.exceptions || {};
+            const worksheetUrl = result.worksheet_url;
             const resultDiv = document.getElementById('validationResult');
             const summaryDiv = document.getElementById('resultSummary');
+            const invSummaryDiv = document.getElementById('inventorySummary');
             const tbody = document.getElementById('mismatchTableBody');
             
             resultDiv.style.display = 'block';
@@ -209,20 +238,20 @@
             if (validation.is_valid) {
                 summaryDiv.innerHTML = `
                     <div class="success-banner">
-                        ✅ All DC allocations match Mother PO requirements! (${validation.total_skus_mother} SKUs validated)
+                        ✅ All DC allocations match Mother PO requirements! (${totalMother} SKUs validated)
                     </div>
                 `;
                 document.getElementById('mismatchSection').style.display = 'none';
             } else {
                 summaryDiv.innerHTML = `
                     <div style="background: #fef2f2; color: #991b1b; padding: 16px; border-radius: 8px; font-weight: 600; text-align: center;">
-                        ⚠️ Found ${validation.mismatches.length} mismatched SKU(s) out of ${validation.total_skus_mother} total
+                        ⚠️ Found ${mismatches.length} mismatched SKU(s) out of ${totalMother} total
                     </div>
                 `;
                 
                 // Mismatches table
                 tbody.innerHTML = '';
-                validation.mismatches.forEach(mismatch => {
+                mismatches.forEach(mismatch => {
                     const statusClass = `status-${mismatch.status}`;
                     const statusText = mismatch.status === 'over' ? '⬆️ Over-allocated' : 
                                      mismatch.status === 'under' ? '⬇️ Under-allocated' : 
@@ -245,6 +274,37 @@
                 });
                 
                 document.getElementById('mismatchSection').style.display = 'block';
+            }
+
+            // Inventory / shortage summary
+            if (inventorySummary && inventorySummary.status_text) {
+                invSummaryDiv.innerHTML = `
+                    <div style="padding: 12px; border-radius: 8px; border:1px solid #e2e8f0; background:#f8fafc;">
+                        <strong>${inventorySummary.status_text}</strong> · Scope: ${inventorySummary.scope}, Safety Stock: ${inventorySummary.safety_stock}
+                    </div>
+                `;
+            }
+
+            // Exceptions + worksheet link
+            const exceptionPanel = document.getElementById('exceptionPanel');
+            const chips = document.getElementById('exceptionChips');
+            const worksheetWrap = document.getElementById('worksheetLinkWrap');
+            const priceCount = (exceptions.price_mismatch || []).length;
+            const missingCount = (exceptions.product_missing || []).length;
+            const stockCount = (exceptions.stock_shortage || []).length;
+            const hasExceptions = priceCount + missingCount + stockCount > 0;
+            if (hasExceptions) {
+                exceptionPanel.style.display = 'block';
+                chips.innerHTML = `
+                    <span class="exception-chip">가격 불일치: ${priceCount}</span>
+                    <span class="exception-chip">제품 미등록: ${missingCount}</span>
+                    <span class="exception-chip">재고 부족: ${stockCount}</span>
+                `;
+                worksheetWrap.innerHTML = worksheetUrl ? `<a class="btn btn-secondary" href="${worksheetUrl}">📥 예외 워크시트 다운로드</a>` : '';
+            } else {
+                exceptionPanel.style.display = 'block';
+                chips.innerHTML = `<span class="exception-chip ok">예외 없음</span>`;
+                worksheetWrap.innerHTML = worksheetUrl ? `<a class="btn btn-secondary" href="${worksheetUrl}">📥 워크시트 다운로드</a>` : '';
             }
         }
     </script>

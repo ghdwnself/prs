@@ -32,6 +32,8 @@ if os.path.exists(division_path):
     except Exception as e:
         logger.error(f"Failed to load DC lookup CSV: {e}")
 
+PRICE_TOLERANCE = 0.01
+
 # --- Helper Functions ---
 def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:
     """
@@ -103,18 +105,53 @@ def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:
 
 # --- API Endpoints ---
 
+def _compute_available_stock(inv_entry: Dict[str, Any], scope: str, safety_stock: int) -> Dict[str, int]:
+    """Calculate available stock by scope (MAIN/SUB/ALL) after safety stock deduction."""
+    locations = inv_entry.get('locations', {}) if inv_entry else {}
+    main_stock = int(locations.get('MAIN', 0))
+    sub_stock = int(locations.get('SUB', 0))
+    total_stock = int(inv_entry.get('total', main_stock + sub_stock))
+    
+    scope_upper = (scope or "ALL").upper()
+    if scope_upper == "MAIN":
+        base_stock = main_stock
+    elif scope_upper == "SUB":
+        base_stock = sub_stock
+    else:
+        base_stock = total_stock
+    
+    available = max(base_stock - safety_stock, 0)
+    return {
+        "available": available,
+        "main_stock": main_stock,
+        "sub_stock": sub_stock,
+        "total_stock": total_stock,
+    }
+
+def _evaluate_price_status(po_cost: float, system_cost: float) -> Dict[str, str]:
+    """Return price label and message based on PO vs system price."""
+    if system_cost <= 0:
+        return {"label": "제품 미등록", "message": "기준 단가 없음"}
+    if po_cost > 0 and abs(po_cost - system_cost) > PRICE_TOLERANCE:
+        return {"label": "가격 불일치", "message": f"PO: ${po_cost:.2f} / 기준: ${system_cost:.2f}"}
+    return {"label": "OK", "message": ""}
+
 @router.post("/validate_dc_allocation")
 async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
     """
     Validate DC PO allocations against Mother PO requirements.
     Checks that sum of DC allocations matches Mother PO's SKU-level total.
+    Also returns inventory/price/total summaries for simultaneous Mother/Child PO review.
     """
     try:
         mother_po_items = payload.get('mother_po_items', [])
         dc_po_items = payload.get('dc_po_items', [])
+        inventory_scope = str(payload.get('inventory_scope', 'ALL')).upper()
+        safety_stock = int(payload.get('safety_stock', 60))
         
         # Build Mother PO totals by SKU
         mother_totals = {}
+        mother_po_total_amount = 0.0
         for item in mother_po_items:
             sku = str(item.get('sku', '')).strip()
             try:
@@ -123,6 +160,11 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
                 logger.warning(f"Invalid po_qty for SKU {sku} in Mother PO, using 0")
                 qty = 0
             mother_totals[sku] = mother_totals.get(sku, 0) + qty
+            try:
+                po_cost = float(item.get('unit_cost', 0.0) or 0.0)
+            except (ValueError, TypeError):
+                po_cost = 0.0
+            mother_po_total_amount += po_cost * qty
         
         # Build DC PO totals by SKU
         dc_totals = {}
@@ -179,10 +221,132 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
                 'mismatched_skus': len(mismatches)
             }
         }
+
+        # --- Extended validation: price, inventory, totals ---
+        all_skus = list(set(list(mother_totals.keys()) + list(dc_totals.keys())))
+        inv_map = get_inventory_data(all_skus)
         
+        def build_item_validation(items: List[Dict[str, Any]], role: str) -> List[Dict[str, Any]]:
+            validated_rows = []
+            for item in items:
+                sku = str(item.get('sku', '')).strip()
+                dc_id = str(item.get('dc_id', '')).strip()
+                po_num = str(item.get('po_number', '')).strip()
+                try:
+                    po_qty = int(item.get('po_qty', 0))
+                except (ValueError, TypeError):
+                    po_qty = 0
+                try:
+                    po_cost = float(item.get('unit_cost', 0.0) or 0.0)
+                except (ValueError, TypeError):
+                    po_cost = 0.0
+
+                inv_entry = inv_map.get(sku, {'locations': {'MAIN': 0, 'SUB': 0}, 'price': 0.0})
+                stock_info = _compute_available_stock(inv_entry, inventory_scope, safety_stock)
+                price_info = _evaluate_price_status(po_cost, float(inv_entry.get('price', 0.0) or 0.0))
+                
+                shortage = max(po_qty - stock_info['available'], 0)
+                stock_label = "재고충분" if shortage <= 0 else "재고부족"
+                status_message = price_info['message']
+                if shortage > 0:
+                    status_message = (status_message + " / " if status_message else "") + f"부족 {shortage}ea"
+
+                inv_price = inv_entry.get('price', None)
+                base_price = float(inv_price) if inv_price not in [None, ""] else float(po_cost)
+                system_amount = base_price * po_qty
+                po_amount = po_cost * po_qty
+
+                validated_rows.append({
+                    'sku': sku,
+                    'dc_id': dc_id,
+                    'po_number': po_num,
+                    'po_qty': po_qty,
+                    'po_cost': po_cost,
+                    'system_price': float(inv_entry.get('price', 0.0) or 0.0),
+                    'system_amount': system_amount,
+                    'po_amount': po_amount,
+                    'available_after_safety': stock_info['available'],
+                    'main_stock': stock_info['main_stock'],
+                    'sub_stock': stock_info['sub_stock'],
+                    'total_stock': stock_info['total_stock'],
+                    'shortage': shortage,
+                    'stock_status': stock_label,
+                    'price_label': price_info['label'],
+                    'price_message': price_info['message'],
+                    'role': role,
+                    'status_message': status_message,
+                })
+            return validated_rows
+
+        mother_validated = build_item_validation(mother_po_items, "mother")
+        dc_validated = build_item_validation(dc_po_items, "child")
+
+        exceptions = {
+            "price_mismatch": [r for r in mother_validated if r['price_label'] == "가격 불일치"],
+            "product_missing": [r for r in mother_validated if r['price_label'] == "제품 미등록"],
+            "stock_shortage": [r for r in mother_validated + dc_validated if r['shortage'] > 0],
+        }
+
+        shortage_count = len(exceptions["stock_shortage"])
+        inventory_summary = {
+            "scope": inventory_scope,
+            "safety_stock": safety_stock,
+            "status_text": "모든 품목 재고충분" if shortage_count == 0 else f"{shortage_count}개 품목 부족",
+            "shortage_count": shortage_count,
+        }
+
+        mother_tot_units = sum(r['po_qty'] for r in mother_validated)
+        child_tot_units = sum(r['po_qty'] for r in dc_validated)
+        mother_sys_amount = sum(r['system_amount'] for r in mother_validated)
+        child_sys_amount = sum(r['system_amount'] for r in dc_validated)
+
+        totals_check = {
+            "mother_units": mother_tot_units,
+            "child_units": child_tot_units,
+            "qty_diff": child_tot_units - mother_tot_units,
+            "mother_amount_system": mother_sys_amount,
+            "mother_amount_po": mother_po_total_amount,
+            "child_amount_system": child_sys_amount,
+            "amount_diff": child_sys_amount - mother_sys_amount,
+            "match": mother_tot_units == child_tot_units and abs(child_sys_amount - mother_sys_amount) < PRICE_TOLERANCE,
+        }
+
+        # CSV worksheet for exceptions / editing
+        worksheet_url = None
+        try:
+            rows_for_csv = []
+            for row in mother_validated + dc_validated:
+                rows_for_csv.append({
+                    "DC#": row['dc_id'],
+                    "Child PO#": row['po_number'],
+                    "SKU/UPC": row['sku'],
+                    "주문수량(고객)": row['po_qty'],
+                    "수정수량": row['po_qty'],
+                    "현재재고_MAIN": row['main_stock'],
+                    "현재재고_SUB": row['sub_stock'],
+                    "상태라벨": row['price_label'] if row['price_label'] != "OK" else row['stock_status'],
+                    "메모": row['status_message'],
+                })
+            if rows_for_csv:
+                df_csv = pd.DataFrame(rows_for_csv)
+                csv_name = f"MotherChild_Validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                csv_path = os.path.join(settings.OUTPUT_DIR, csv_name)
+                df_csv.to_csv(csv_path, index=False)
+                worksheet_url = f"/api/download/{csv_name}"
+        except Exception as e:
+            logger.warning(f"Failed to generate CSV worksheet: {e}")
+
         return JSONResponse({
             "status": "success",
-            "validation": validation_result
+            "validation": validation_result,
+            "inventory_summary": inventory_summary,
+            "exceptions": exceptions,
+            "totals": totals_check,
+            "worksheet_url": worksheet_url,
+            "details": {
+                "mother": mother_validated,
+                "dc": dc_validated
+            }
         })
         
     except Exception as e:
