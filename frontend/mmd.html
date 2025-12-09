@@ -7,39 +7,39 @@
     <link rel="stylesheet" href="assets/css/style.css">
     <style>
         .step-container { max-width: 1100px; margin: 0 auto; }
-        .step-card { background: white; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 24px; }
+        .step-card { background: white; border-radius: 6px; padding: 20px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); margin-bottom: 20px; }
         .step-title { font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; color: var(--text-main); }
         
         .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-        .stat-card { background: #f8fafc; padding: 20px; border-radius: 8px; text-align: center; border: 1px solid var(--border-color); }
+        .stat-card { background: #FAFAFA; padding: 20px; border-radius: 6px; text-align: center; border: 1px solid var(--border-color); }
         .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--primary-color); }
         .stat-label { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
-        .stat-card.danger .stat-value { color: #ef4444; }
+        .stat-card.danger .stat-value { color: var(--danger-color); }
         
         .dc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
         .dc-card { 
-            border: 1px solid var(--border-color); padding: 20px; border-radius: 12px; background: white; 
+            border: 1px solid var(--border-color); padding: 20px; border-radius: 6px; background: white; 
             cursor: pointer; transition: all 0.2s; position: relative;
         }
-        .dc-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); border-color: var(--primary-color); }
-        .dc-card.has-issue { border-left: 4px solid #ef4444; }
+        .dc-card:hover { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); border-color: var(--primary-color); }
+        .dc-card.has-issue { border-left: 4px solid var(--danger-color); }
         .dc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
         .dc-title { font-weight: 700; font-size: 1.1rem; }
-        .dc-stat { font-size: 0.9rem; color: #555; margin-bottom: 4px; display: flex; justify-content: space-between; }
-        .shortage-badge { background: #fee2e2; color: #ef4444; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-block; margin-top: 8px;}
+        .dc-stat { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 4px; display: flex; justify-content: space-between; }
+        .shortage-badge { background: #fee2e2; color: var(--danger-color); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; display: inline-block; margin-top: 8px;}
 
         .dc-detail-row { grid-column: 1 / -1; display: none; animation: fadeIn 0.3s ease; }
         .dc-detail-row.open { display: block; }
-        .detail-table { width: 100%; border-collapse: collapse; margin-top: 10px; background: #f8fafc; border-radius: 8px; overflow: hidden; }
-        .detail-table th { background: #e2e8f0; padding: 10px; text-align: left; font-size: 0.85rem; }
+        .detail-table { width: 100%; border-collapse: collapse; margin-top: 10px; background: #FAFAFA; border-radius: 6px; overflow: hidden; }
+        .detail-table th { background: #FAFAFA; padding: 10px; text-align: left; font-size: 0.85rem; }
         .detail-table td { padding: 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem; }
         .row-shortage { background-color: #fef2f2; color: #b91c1c; font-weight: 600; }
 
         /* Pallet Card */
         .pallet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 20px; }
-        .pallet-card { border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .pallet-card { border: 1px solid var(--border-color); border-radius: 6px; padding: 16px; background: white; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); }
         .pallet-header { display: flex; justify-content: space-between; margin-bottom: 12px; font-weight: 600; border-bottom: 1px dashed #eee; padding-bottom: 8px;}
-        .pallet-item { font-size: 13px; display: flex; justify-content: space-between; margin-bottom: 4px; color: #555; }
+        .pallet-item { font-size: 13px; display: flex; justify-content: space-between; margin-bottom: 4px; color: var(--text-muted); }
         .badge-full { background: #dcfce7; color: #166534; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
         .badge-mixed { background: #fef9c3; color: #854d0e; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
 
@@ -51,7 +51,9 @@
 <body>
     <div class="app-container">
         <nav class="sidebar">
-            <div class="sidebar-header">PO<span class="brand-highlight">Review</span></div>
+            <div class="sidebar-header">
+                <img src="/data/nf_logo.png" alt="Company Logo" class="sidebar-logo">
+            </div>
             <ul class="nav-links">
                 <li class="nav-item"><a href="index.html" class="nav-link"><span class="nav-icon">📊</span> Dashboard</a></li>
                 <li class="nav-item"><a href="mmd.html" class="nav-link active"><span class="nav-icon">📄</span> MMD (Auto)</a></li>
@@ -236,13 +238,13 @@
                 let tableHtml = `
                     <div style="padding: 10px; background: #fff; border: 1px solid var(--border-color); border-top: none; border-radius: 0 0 8px 8px; overflow-x: auto;">
                     <table class="detail-table">
-                        <thead><tr><th>Status</th><th>SKU</th><th>Desc</th><th class="text-right">PO Qty</th><th class="text-right">Main Inv</th><th class="text-right">Sub Inv</th><th class="text-right">Price</th><th>Message</th></tr></thead>
+                        <thead><tr><th>Status</th><th>SKU</th><th>Desc</th><th class="text-right">PO Qty</th><th>Inventory</th><th class="text-right">Price</th><th>Price Status</th><th>Message</th></tr></thead>
                         <tbody>
                 `;
                 
                 dcItems.forEach(item => {
                     // Get status and normalize it
-                    const rawStatus = item['status'] || item['validation_status'] || 'Unknown';
+                    const rawStatus = item['Status'] || item['status'] || item['validation_status'] || 'Unknown';
                     const normalizedStatus = normalizeStatus(rawStatus);
                     const statusClass = `status-${normalizedStatus}`;
                     
@@ -252,11 +254,36 @@
                     else if (normalizedStatus === 'warning') rowClass = 'row-warning';
                     
                     // Get inventory values (try multiple possible field names for compatibility)
-                    const mainInv = item['main_stock'] || item['main_inv'] || 0;
-                    const subInv = item['sub_stock'] || item['sub_inv'] || 0;
+                    const mainInv = item['Main Stock'] || item['main_stock'] || item['main_inv'] || 0;
+                    const subInv = item['Sub Stock'] || item['sub_stock'] || item['sub_inv'] || 0;
+                    const totalInv = item['Total Stock'] || item['total_stock'] || (mainInv + subInv);
+                    
+                    // Determine stock status class based on inventory levels
+                    let stockStatusClass = 'stock-adequate';
+                    const poQty = item['PO Qty (Units)'] || item['po_qty'] || item['qty'] || 0;
+                    const shortage = item['Shortage'] || item['remaining_shortage'] || 0;
+                    
+                    if (shortage > 0 || totalInv < poQty) {
+                        stockStatusClass = 'stock-out';
+                    } else if (normalizedStatus === 'warning') {
+                        stockStatusClass = 'stock-low';
+                    }
+                    
+                    // Get price information
+                    const poPrice = item['PO Price'] || item['unit_cost'] || 0;
+                    const systemPrice = item['system_cost'] || poPrice;
+                    const priceWarning = item['Price Warning'] || item['price_warning'] || '';
+                    
+                    // Determine price match status
+                    let priceStatusClass = 'price-match';
+                    let priceStatusText = 'Match';
+                    if (priceWarning) {
+                        priceStatusClass = 'price-mismatch';
+                        priceStatusText = 'Mismatch';
+                    }
                     
                     // Get message/issues
-                    const message = item['issues'] || item['price_warning'] || '';
+                    const message = item['issues'] || priceWarning || '';
                     const messageClass = normalizedStatus === 'critical' ? 'message-critical' : '';
                     
                     // Get other fields (try multiple possible field names)
@@ -264,8 +291,24 @@
                     const fullDesc = item['Description'] || item['product_name'] || '';
                     const desc = fullDesc.substring(0, 20);
                     const needsEllipsis = fullDesc.length > 20;
-                    const poQty = item['PO Qty (Units)'] || item['po_qty'] || item['qty'] || 0;
-                    const price = item['Price'] || item['unit_cost'] || 0;
+                    
+                    // Build inventory display HTML
+                    const inventoryHtml = `
+                        <div class="inventory-display">
+                            <div class="inventory-row">
+                                <span class="inventory-label">Main:</span>
+                                <span class="inventory-value inventory-main">${mainInv}</span>
+                            </div>
+                            <div class="inventory-row">
+                                <span class="inventory-label">Sub:</span>
+                                <span class="inventory-value inventory-sub">${subInv}</span>
+                            </div>
+                            <div class="inventory-row inventory-total">
+                                <span class="inventory-label">Total:</span>
+                                <span class="inventory-value">${totalInv}</span>
+                            </div>
+                        </div>
+                    `;
                     
                     tableHtml += `
                         <tr class="${rowClass}">
@@ -273,9 +316,9 @@
                             <td>${sku}</td>
                             <td>${desc}${needsEllipsis ? '...' : ''}</td>
                             <td class="text-right">${poQty}</td>
-                            <td class="text-right">${mainInv}</td>
-                            <td class="text-right">${subInv}</td>
-                            <td class="text-right">${formatCurrency(price)}</td>
+                            <td>${inventoryHtml}</td>
+                            <td class="text-right">${formatCurrency(poPrice)}</td>
+                            <td><span class="${priceStatusClass}">${priceStatusText}</span></td>
                             <td class="${messageClass}">${message}</td>
                         </tr>
                     `;

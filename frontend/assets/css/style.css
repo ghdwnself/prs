@@ -1,28 +1,28 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
-    /* Brand Colors */
-    --primary-color: #3b82f6;       /* Bright Blue */
-    --primary-dark: #2563eb;
-    --secondary-color: #64748b;     /* Slate */
+    /* Brand Colors - Updated to match user's design */
+    --primary-color: #C70039;       /* Crimson Red */
+    --primary-dark: #A70032;        /* Darker Crimson */
+    --secondary-color: #717171;     /* Gray */
     --success-color: #10b981;       /* Emerald */
     --warning-color: #f59e0b;       /* Amber */
-    --danger-color: #ef4444;        /* Red */
+    --danger-color: #C70039;        /* Crimson Red */
 
-    /* Backgrounds */
-    --bg-body: #f1f5f9;             /* Light Gray Blue */
+    /* Backgrounds - Updated to match user's design */
+    --bg-body: #E5E5E5;             /* Light Gray */
     --bg-sidebar: #1e293b;          /* Dark Slate */
-    --bg-card: #ffffff;
+    --bg-card: #FFFFFF;             /* White */
 
-    /* Text */
-    --text-main: #0f172a;
-    --text-muted: #64748b;
+    /* Text - Updated to match user's design */
+    --text-main: #331A1A;           /* Dark Brown */
+    --text-muted: #717171;          /* Gray */
     --text-light: #f8fafc;
 
     /* Borders & Shadows */
     --border-color: #e2e8f0;
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.1);
     --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
     
     /* Layout */
@@ -37,9 +37,9 @@
 }
 
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: Arial, sans-serif;
     background-color: var(--bg-body);
-    color: var(--text-main);
+    color: var(--text-muted);
     line-height: 1.5;
     overflow-x: hidden;
 }
@@ -67,11 +67,18 @@ body {
     height: var(--header-height);
     display: flex;
     align-items: center;
+    justify-content: center;
     padding: 0 24px;
     font-size: 1.25rem;
     font-weight: 700;
     border-bottom: 1px solid rgba(255,255,255,0.1);
     letter-spacing: -0.5px;
+}
+
+.sidebar-logo {
+    max-width: 100%;
+    max-height: 48px;
+    object-fit: contain;
 }
 
 .brand-highlight {
@@ -218,23 +225,25 @@ body {
 
 .btn-primary {
     background-color: var(--primary-color);
-    color: white;
+    color: #FFFFFF;
+    border-radius: 6px;
 }
 
 .btn-primary:hover {
     background-color: var(--primary-dark);
-    transform: translateY(-1px);
+    transform: none;
 }
 
 .btn-secondary {
     background-color: white;
     border: 1px solid var(--border-color);
     color: var(--text-main);
+    border-radius: 6px;
 }
 
 .btn-secondary:hover {
     background-color: #f8fafc;
-    border-color: #cbd5e1;
+    border-color: var(--primary-color);
 }
 
 /* Forms */
@@ -263,23 +272,23 @@ body {
 .form-control:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(199, 0, 57, 0.1);
 }
 
 /* Drop Zone */
 .drop-zone {
     border: 2px dashed var(--border-color);
-    border-radius: 12px;
+    border-radius: 6px;
     padding: 40px;
     text-align: center;
     cursor: pointer;
     transition: all 0.2s;
-    background-color: #f8fafc;
+    background-color: #FAFAFA;
 }
 
 .drop-zone:hover, .drop-zone.dragover {
     border-color: var(--primary-color);
-    background-color: rgba(59, 130, 246, 0.05);
+    background-color: rgba(199, 0, 57, 0.05);
 }
 
 /* Tables */
@@ -296,29 +305,28 @@ table {
 
 th {
     text-align: left;
-    padding: 12px 16px;
-    background-color: #f8fafc;
-    color: var(--text-muted);
+    padding: 10px;
+    background-color: #FAFAFA;
+    color: var(--text-main);
     font-weight: 600;
     border-bottom: 1px solid var(--border-color);
     position: sticky;
     top: 0;
     z-index: 2;
-    box-shadow: 0 1px 0 rgba(0,0,0,0.05);
 }
 
 td {
-    padding: 12px 16px;
+    padding: 10px;
     border-bottom: 1px solid var(--border-color);
     color: var(--text-main);
 }
 
 tr:nth-child(even) {
-    background-color: var(--bg-body);
+    background-color: #E5E5E5;
 }
 
 tr:hover {
-    background-color: rgba(59, 130, 246, 0.05);
+    background-color: rgba(199, 0, 57, 0.05);
 }
 
 tr:last-child td {
@@ -396,6 +404,103 @@ tr.row-critical {
 
 tr.row-warning {
     background-color: #fffbeb !important;
+}
+
+/* Price Match Status Indicators */
+.price-match {
+    color: #10b981;
+    font-weight: 600;
+}
+
+.price-match::before {
+    content: '✓ ';
+    font-weight: 700;
+}
+
+.price-mismatch {
+    color: #ef4444;
+    font-weight: 600;
+}
+
+.price-mismatch::before {
+    content: '✗ ';
+    font-weight: 700;
+}
+
+/* Inventory Status Indicators */
+.stock-adequate {
+    background-color: #d1fae5;
+    color: #065f46;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.stock-adequate::before {
+    content: '✓ ';
+}
+
+.stock-low {
+    background-color: #fef3c7;
+    color: #92400e;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.stock-low::before {
+    content: '⚠ ';
+}
+
+.stock-out {
+    background-color: #fee2e2;
+    color: #991b1b;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 700;
+}
+
+.stock-out::before {
+    content: '🚨 ';
+}
+
+/* Inventory Display - MAIN/SUB/TOTAL */
+.inventory-display {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.85rem;
+}
+
+.inventory-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.inventory-label {
+    font-weight: 600;
+    margin-right: 8px;
+    color: #64748b;
+}
+
+.inventory-value {
+    font-weight: 600;
+}
+
+.inventory-main {
+    color: #2563eb;
+}
+
+.inventory-sub {
+    color: #7c3aed;
+}
+
+.inventory-total {
+    color: #0f172a;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 2px;
+    margin-top: 2px;
 }
 
 /* Responsive Design */

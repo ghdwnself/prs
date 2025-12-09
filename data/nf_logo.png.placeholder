@@ -1,0 +1,5 @@
+<!-- This is a placeholder. Replace with actual nf_logo.png -->
+<svg width="200" height="60" xmlns="http://www.w3.org/2000/svg">
+  <rect width="200" height="60" fill="#C70039"/>
+  <text x="100" y="35" font-family="Arial" font-size="24" fill="white" text-anchor="middle" font-weight="bold">NF Logo</text>
+</svg>
