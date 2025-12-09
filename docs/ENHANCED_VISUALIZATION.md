@@ -150,7 +150,7 @@ Total: 700
            remaining_shortage = shortage - sub_stock
    ```
 
-### Frontend (mmd.html)
+### Frontend (index.html - PO Validation)
 
 1. **Extract Data**
    ```javascript

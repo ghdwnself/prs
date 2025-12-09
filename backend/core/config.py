@@ -13,7 +13,7 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 class Settings:
     PROJECT_NAME: str = "POReviewSystem"
-    VERSION: str = "3.5.0"
+    VERSION: str = "2.0.0"
     
     # 루트 경로 저장
     BASE_DIR = BASE_DIR

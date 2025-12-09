@@ -12,6 +12,14 @@ The PO Review System is designed to streamline and automate the PO review proces
 - **Document Generation**: Generate Excel reports and shipping documents
 - **Firebase Integration**: Real-time data synchronization and storage
 - **User-Friendly Web Interface**: Modern web UI for easy operation
+- **Login-Free Access (v2)**: No authentication required; the app opens directly to PO Validation
+
+---
+
+## v2 Update (2025-12-09)
+
+- 로그인 기능 제거: 별도 토큰이나 시크릿 없이 바로 사용 가능
+- 기존 `mmd.html` 단일 업로드 페이지 제거, 기본 진입점을 `index.html` PO Validation으로 통합
 
 ---
 
@@ -94,7 +102,7 @@ Choose your operating system:
    - ✅ Start the FastAPI server
 
 4. **Open your browser** and navigate to:
-   - Main Application: **http://localhost:8001**
+   - Main Application (PO Validation): **http://localhost:8001**
    - API Documentation: **http://localhost:8001/docs**
 
 ---
@@ -154,11 +162,10 @@ DATA_DIR=data
 
 ### Main Features
 
-#### 1. **MMD (Multi-Market Distribution)**
-- Upload PO PDFs
-- Validate against inventory
-- Generate pallet configurations
-- Export Excel reports
+#### 1. **PO Validation (Mother + DC)**
+- 업로드한 Mother PO와 DC PO를 비교하여 수량 일치 여부 검증
+- 재고 검증 및 요약 리포트 제공
+- 불일치 항목 CSV 추출 및 Order Import 생성 준비
 
 #### 2. **EMD (E-commerce Market Distribution)**
 - Similar to MMD with e-commerce specific logic
@@ -200,8 +207,7 @@ prs/
 │       ├── document_generator.py  # Excel/document generation
 │       └── firebase_service.py    # Firebase integration
 ├── frontend/
-│   ├── index.html                 # Landing page
-│   ├── mmd.html                   # MMD interface
+│   ├── index.html                 # PO Validation landing page
 │   ├── emd.html                   # EMD interface
 │   ├── admin.html                 # Admin interface
 │   └── assets/                    # Static assets (CSS, JS, images)
@@ -292,7 +298,7 @@ For technical support or questions:
 
 ## 🎯 Version
 
-**Current Version**: v3.5.0
+**Current Version**: v2.0.0
 
 ---
 

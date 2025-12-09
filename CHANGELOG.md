@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - 2025-12-09
+## [2.0.0] - 2025-12-09
 
 ### Added
 
@@ -87,6 +87,10 @@
   - `.stock-adequate`, `.stock-low`, `.stock-out` for inventory status
   - `.inventory-display`, `.inventory-main`, `.inventory-sub`, `.inventory-total`
   - Status badge styles for DC validation page
+
+### Removed
+- Firebase 프론트엔드 인증 설정(`firebase_config.js`)과 로그인 UI 요소를 제거하여 무인증 흐름으로 단순화
+- 레거시 `mmd.html` 업로드 페이지 및 네비게이션 경로를 정리하고 `index.html` PO Validation 진입점으로 통합
 
 ### Fixed
 - CSS class conflict in MMD detail table (separated status classes)
