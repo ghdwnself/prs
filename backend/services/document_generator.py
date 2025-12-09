@@ -1,6 +1,8 @@
+import math
 import pandas as pd
 import os
 from datetime import datetime
+from services.utils import safe_int
 
 class DocumentGenerator:
     def __init__(self, output_dir):
@@ -69,6 +71,41 @@ class DocumentGenerator:
         filename = f"Order_Import_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         path = os.path.join(self.output_dir, filename)
         df.to_excel(path, index=False)
+        return f"/api/download/{filename}"
+
+    def generate_review_worksheet(self, validated_items):
+        """
+        Generate extended CSV worksheet for PO review.
+        
+        Columns:
+            DC_ID, Child_PO, SKU, Customer_Qty_Cases, Modified_Qty_Cases,
+            Current_Stock_MAIN, Current_Stock_SUB, Status_Label, Memo_Action
+        """
+        rows = []
+        for item in validated_items:
+            po_qty = safe_int(item.get('po_qty', 0))
+            pack_size = safe_int(item.get('pack_size', 1), default=1)
+            if pack_size < 1:
+                pack_size = 1
+            default_case_qty = math.ceil(po_qty / pack_size)
+            case_qty = safe_int(item.get('case_qty', default_case_qty), default_case_qty)
+
+            rows.append({
+                "DC_ID": str(item.get('dc_id', '')),
+                "Child_PO": str(item.get('sales_order_num', item.get('po_number', ''))),
+                "SKU": str(item.get('sku', '')),
+                "Customer_Qty_Cases": case_qty,
+                "Modified_Qty_Cases": "",
+                "Current_Stock_MAIN": safe_int(item.get('available_main_stock')),
+                "Current_Stock_SUB": safe_int(item.get('available_sub_stock')),
+                "Status_Label": item.get('status_label', item.get('status', '')),
+                "Memo_Action": item.get('memo_action', ''),
+            })
+
+        df = pd.DataFrame(rows)
+        filename = f"Review_Worksheet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        path = os.path.join(self.output_dir, filename)
+        df.to_csv(path, index=False)
         return f"/api/download/{filename}"
 
     def generate_packing_list(self, pallets, dc_lookup):

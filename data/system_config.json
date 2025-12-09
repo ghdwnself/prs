@@ -1,5 +1,5 @@
 {
-    "safety_stock": 50,
+    "safety_stock": 0,
     "pallet_max_height": 68,
     "pallet_max_weight": 2500,
     "pallet_base_weight": 40

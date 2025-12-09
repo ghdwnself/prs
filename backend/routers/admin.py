@@ -23,7 +23,7 @@ CONFIG_FILE = os.path.join(settings.DATA_DIR, "system_config.json")
 # --- 1. 시스템 설정 관리 (System Settings) ---
 
 DEFAULT_CONFIG = {
-    "safety_stock": 50,
+    "safety_stock": 0,
     "pallet_max_height": 68,
     "pallet_max_weight": 2500,
     "pallet_base_weight": 40
@@ -33,15 +33,16 @@ def load_config():
     if not os.path.exists(CONFIG_FILE):
         return DEFAULT_CONFIG
     try:
-        with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            loaded = json.load(f)
+            return {**DEFAULT_CONFIG, **loaded}
     except Exception as e:
         logger.error(f"Failed to load config: {e}")
         return DEFAULT_CONFIG
 
 def save_config(config_data):
     os.makedirs(settings.DATA_DIR, exist_ok=True)
-    with open(CONFIG_FILE, 'w') as f:
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config_data, f, indent=4)
 
 @router.get("/settings")
@@ -53,7 +54,7 @@ async def update_settings(payload: Dict[str, Any] = Body(...)):
     try:
         current = load_config()
         # 값 업데이트 (숫자 변환)
-        current['safety_stock'] = int(payload.get('safety_stock', current['safety_stock']))
+        current['safety_stock'] = int(payload.get('safety_stock', current.get('safety_stock', DEFAULT_CONFIG['safety_stock'])))
         current['pallet_max_height'] = int(payload.get('pallet_max_height', current['pallet_max_height']))
         current['pallet_max_weight'] = int(payload.get('pallet_max_weight', current['pallet_max_weight']))
         current['pallet_base_weight'] = int(payload.get('pallet_base_weight', current['pallet_base_weight']))
