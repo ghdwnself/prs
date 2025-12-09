@@ -261,7 +261,9 @@
                     
                     // Get other fields (try multiple possible field names)
                     const sku = item['SKU'] || item['sku'] || '';
-                    const desc = (item['Description'] || item['product_name'] || '').substring(0, 20);
+                    const fullDesc = item['Description'] || item['product_name'] || '';
+                    const desc = fullDesc.substring(0, 20);
+                    const needsEllipsis = fullDesc.length > 20;
                     const poQty = item['PO Qty (Units)'] || item['po_qty'] || item['qty'] || 0;
                     const price = item['Price'] || item['unit_cost'] || 0;
                     
@@ -269,7 +271,7 @@
                         <tr class="${rowClass}">
                             <td><span class="${statusClass}">${getStatusDisplay(rawStatus)}</span></td>
                             <td>${sku}</td>
-                            <td>${desc}${desc.length >= 20 ? '...' : ''}</td>
+                            <td>${desc}${needsEllipsis ? '...' : ''}</td>
                             <td class="text-right">${poQty}</td>
                             <td class="text-right">${mainInv}</td>
                             <td class="text-right">${subInv}</td>

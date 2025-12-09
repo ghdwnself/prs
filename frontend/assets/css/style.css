@@ -314,11 +314,11 @@ td {
 }
 
 tr:nth-child(even) {
-    background-color: #f7f7f7;
+    background-color: var(--bg-body);
 }
 
 tr:hover {
-    background-color: #eef6ff;
+    background-color: rgba(59, 130, 246, 0.05);
 }
 
 tr:last-child td {
