@@ -5,7 +5,6 @@ import shutil
 import math
 import logging
 import pandas as pd
-from datetime import datetime
 from typing import Dict, Any, List
 
 # Config & Services
@@ -191,7 +190,11 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
 
 
 @router.post("/analyze_po")
-async def analyze_po(file: UploadFile = File(...)):
+async def analyze_po(
+    file: UploadFile = File(...),
+    stock_mode: str = "TOTAL",
+    safety_stock_value: int = None
+):
     """
     Analyze PO PDF file using new dynamic parser and validator.
     Returns validated items with MAIN/SUB inventory status.
@@ -234,12 +237,24 @@ async def analyze_po(file: UploadFile = File(...)):
                 'KeyAccountPrice_TJX': data.get('price', 0.0)
             }
         
+        # Determine safety stock (configurable, defaults to settings)
+        try:
+            configured_safety_stock = settings.SAFETY_STOCK
+        except Exception:
+            configured_safety_stock = 0
+        try:
+            effective_safety_stock = configured_safety_stock if safety_stock_value is None else max(0, int(safety_stock_value))
+        except (TypeError, ValueError):
+            logger.warning("Invalid safety_stock_value provided; using configured default.")
+            effective_safety_stock = configured_safety_stock
+
         # Validate PO data using the new validator
         validated_items = validate_po_data(
             parsed_items,
             inventory_map=validator_inv_map,
             product_map=validator_prod_map,
-            safety_stock=50  # TODO: Load from config
+            safety_stock_value=effective_safety_stock,
+            stock_mode=stock_mode
         )
         
         # Get validation summary
@@ -274,10 +289,10 @@ async def analyze_po(file: UploadFile = File(...)):
             total_price = po_qty * price
             
             # Get inventory details
-            main_stock = int(item.get('main_stock', 0))
-            sub_stock = int(item.get('sub_stock', 0))
-            total_stock = int(item.get('total_stock', 0))
-            remaining_shortage = int(item.get('remaining_shortage', 0))
+            main_stock = int(item.get('available_main_stock', item.get('main_stock', 0)))
+            sub_stock = int(item.get('available_sub_stock', item.get('sub_stock', 0)))
+            total_stock = int(item.get('available_total_stock', item.get('total_stock', 0)))
+            remaining_shortage = int(item.get('remaining_shortage', item.get('shortage', 0)))
             
             analysis_result.append({
                 'DC #': dc_id,
@@ -290,6 +305,7 @@ async def analyze_po(file: UploadFile = File(...)):
                 'Total Stock': total_stock,
                 'Shortage': remaining_shortage,
                 'Status': item.get('status', 'OK'),
+                'Status Label': item.get('status_label', item.get('status', '')),
                 'PO Price': price,
                 'Unit Cost': float(item.get('unit_cost', 0.0)),
                 'Total Amount': total_price,
@@ -323,17 +339,15 @@ async def analyze_po(file: UploadFile = File(...)):
                     'short': remaining_shortage
                 })
         
-        # Excel Creation
-        df = pd.DataFrame(analysis_result)
-        fname = f"Worksheet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        df.to_excel(os.path.join(settings.OUTPUT_DIR, fname), index=False)
+        doc_gen = DocumentGenerator(settings.OUTPUT_DIR)
+        worksheet_url = doc_gen.generate_review_worksheet(validated_items)
         
         return JSONResponse({
             "status": "success",
             "summary": summary,
             "po_number": po_num,
             "ship_window": ship_window,
-            "worksheet_url": f"/api/download/{fname}",
+            "worksheet_url": worksheet_url,
             "raw_data": analysis_result
         })
     except Exception as e:

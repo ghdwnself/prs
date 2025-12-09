@@ -4,6 +4,7 @@ Provides smart inventory validation with Main-First -> Sub-Second logic.
 """
 import logging
 from typing import List, Dict, Any, Optional
+from core.config import settings
 from services.data_loader import data_loader
 
 # 로깅 설정
@@ -11,24 +12,28 @@ logger = logging.getLogger(__name__)
 
 # Status constants
 STATUS_OK = "OK"
-STATUS_MAIN_SHORT = "⚠️ Main Short. Transfer from Sub"
+STATUS_MAIN_SHORT = "⚠️ Inventory Low"
 STATUS_OUT_OF_STOCK = "🚨 Out of Stock"
+STATUS_PRICE_MISMATCH = "가격 불일치"
+STATUS_PRODUCT_MISSING = "제품 미등록"
 
 
 def validate_po_data(
     parsed_data_list: List[Dict[str, Any]],
+    safety_stock_value: Optional[int] = None,
+    stock_mode: str = "TOTAL",
     inventory_map: Optional[Dict[str, Dict]] = None,
-    product_map: Optional[Dict[str, Dict]] = None,
-    safety_stock: int = 50
+    product_map: Optional[Dict[str, Dict]] = None
 ) -> List[Dict[str, Any]]:
     """
-    Smart inventory validation: Check MAIN first, then SUB.
+    Smart validation: price alignment + inventory check with configurable safety stock.
     
     Args:
         parsed_data_list: List of parsed PO items from po_parser
         inventory_map: Inventory data (defaults to data_loader.inventory_map)
         product_map: Product data (defaults to data_loader.product_map)
-        safety_stock: Safety stock buffer to add to requirements
+        safety_stock_value: Safety stock buffer to subtract from location stock (defaults to settings.SAFETY_STOCK or 0)
+        stock_mode: Inventory source selector ("MAIN", "SUB", or "TOTAL"). Defaults to TOTAL.
         
     Returns:
         List of validated items with status and additional info
@@ -37,6 +42,19 @@ def validate_po_data(
         inventory_map = data_loader.inventory_map
     if product_map is None:
         product_map = data_loader.product_map
+
+    if safety_stock_value is None:
+        effective_safety_stock = getattr(settings, "SAFETY_STOCK", 0)
+    else:
+        try:
+            effective_safety_stock = max(0, int(safety_stock_value))
+        except (TypeError, ValueError):
+            logger.warning("Invalid safety_stock_value provided. Falling back to 0.")
+            effective_safety_stock = 0
+
+    default_stock_mode = (stock_mode or "TOTAL").strip().upper()
+    if default_stock_mode not in {"MAIN", "SUB", "TOTAL"}:
+        default_stock_mode = "TOTAL"
     
     validated_items: List[Dict[str, Any]] = []
     
@@ -45,63 +63,70 @@ def validate_po_data(
         po_qty = int(item.get('po_qty', 0))
         po_cost = float(item.get('unit_cost', 0.0))
         is_mother_po = item.get('is_mother_po', False)
+        item_stock_mode = str(item.get('stock_mode', default_stock_mode)).strip().upper()
+        if item_stock_mode not in {"MAIN", "SUB", "TOTAL"}:
+            item_stock_mode = "TOTAL"
         
         # Get inventory data for SKU
         inv_data = inventory_map.get(sku, {"total": 0, "locations": {}})
         main_stock = int(inv_data.get("locations", {}).get("MAIN", 0))
         sub_stock = int(inv_data.get("locations", {}).get("SUB", 0))
         total_stock = int(inv_data.get("total", 0))
+        available_main = max(0, main_stock - effective_safety_stock)
+        available_sub = max(0, sub_stock - effective_safety_stock)
+        available_total = max(0, total_stock - effective_safety_stock)
+        available_by_mode = {
+            "MAIN": available_main,
+            "SUB": available_sub,
+            "TOTAL": available_total
+        }
+        available_stock = available_by_mode.get(item_stock_mode, available_total)
         
         # Get product data for price comparison
         prod_data = product_map.get(sku, {})
         system_cost = float(prod_data.get('KeyAccountPrice_TJX', 0.0) or 0.0)
-        
-        # Calculate required quantity (PO qty + safety stock)
-        required_qty = po_qty + safety_stock
-        
-        # Status logic: Check MAIN first, then SUB
-        status = STATUS_OK
-        shortage = 0
-        transfer_from_sub = 0
-        remaining_shortage = 0
-        
-        if main_stock >= required_qty:
-            # MAIN has enough stock
-            status = STATUS_OK
-        else:
-            # MAIN is short
-            shortage = required_qty - main_stock
-            
-            if sub_stock >= shortage:
-                # SUB can cover the shortage
-                status = STATUS_MAIN_SHORT
-                transfer_from_sub = shortage
-            else:
-                # Neither MAIN nor SUB has enough
-                status = STATUS_OUT_OF_STOCK
-                transfer_from_sub = sub_stock  # Transfer what's available
-                remaining_shortage = shortage - sub_stock
-        
-        # Price check for Mother POs
+
+        required_qty = po_qty
+        shortage = max(0, required_qty - available_stock)
+
+        # Inventory status based on availability
+        inventory_status = STATUS_OK if shortage == 0 else STATUS_OUT_OF_STOCK
+
+        # Price check (Mother PO prioritised, but applied when both values exist)
+        status_label = STATUS_OK
         price_warning = ""
-        if is_mother_po and po_cost > 0 and system_cost > 0:
-            # Allow small difference (e.g., rounding)
+        if not prod_data:
+            status_label = STATUS_PRODUCT_MISSING
+        elif is_mother_po or (po_cost > 0 and system_cost > 0):
             if abs(po_cost - system_cost) > 0.01:
+                status_label = STATUS_PRICE_MISMATCH
                 price_warning = f"PO: ${po_cost:.2f} vs System: ${system_cost:.2f}"
+        elif system_cost == 0:
+            status_label = STATUS_PRODUCT_MISSING
+
+        # Final status prioritises product/price issues over inventory, but keeps inventory flag
+        status = inventory_status if status_label == STATUS_OK else status_label
         
         # Build validated item
         validated_item = {
             **item,  # Include all original fields
             'status': status,
+            'status_label': status_label,
             'main_stock': main_stock,
             'sub_stock': sub_stock,
             'total_stock': total_stock,
+            'available_main_stock': available_main,
+            'available_sub_stock': available_sub,
+            'available_total_stock': available_total,
+            'available_stock': available_stock,
             'required_qty': required_qty,
             'shortage': shortage,
-            'transfer_from_sub': transfer_from_sub,
-            'remaining_shortage': remaining_shortage,
+            'transfer_from_sub': 0,
+            'remaining_shortage': shortage,
             'system_cost': system_cost,
             'price_warning': price_warning,
+            'stock_mode': item_stock_mode,
+            'memo_action': item.get('memo_action', '')
         }
         
         validated_items.append(validated_item)
@@ -122,8 +147,8 @@ def get_validation_summary(validated_items: List[Dict[str, Any]]) -> Dict[str, A
     summary = {
         'total_items': len(validated_items),
         'ok_count': 0,
-        'main_short_count': 0,
         'out_of_stock_count': 0,
+        'main_short_count': 0,
         'price_mismatch_count': 0,
         'total_units': 0,
         'total_shortage': 0,
@@ -134,24 +159,28 @@ def get_validation_summary(validated_items: List[Dict[str, Any]]) -> Dict[str, A
     
     for item in validated_items:
         status = item.get('status', '')
+        status_label = item.get('status_label', '')
         po_qty = int(item.get('po_qty', 0))
         dc_id = item.get('dc_id', 'N/A')
-        
+
+        shortage_val = int(item.get('remaining_shortage', item.get('shortage', 0)))
+        available_stock = int(item.get('available_stock', 0))
+
         # Count by status
-        if status == STATUS_OK:
+        if shortage_val == 0 and status == STATUS_OK:
             summary['ok_count'] += 1
-        elif status == STATUS_MAIN_SHORT:
+        elif shortage_val > 0 and available_stock > 0:
             summary['main_short_count'] += 1
-        elif status == STATUS_OUT_OF_STOCK:
+        elif shortage_val > 0:
             summary['out_of_stock_count'] += 1
         
         # Price warnings
-        if item.get('price_warning'):
+        if status_label == STATUS_PRICE_MISMATCH or item.get('price_warning'):
             summary['price_mismatch_count'] += 1
         
         # Totals
         summary['total_units'] += po_qty
-        summary['total_shortage'] += item.get('remaining_shortage', 0)
+        summary['total_shortage'] += shortage_val
         summary['total_transfer_from_sub'] += item.get('transfer_from_sub', 0)
         
         # Group by DC

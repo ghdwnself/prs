@@ -1,4 +1,5 @@
 import os
+import json
 from dotenv import load_dotenv
 
 # [수정됨] backend/core/config.py 위치에서 3단계 올라가야 루트(PO-SYSTEM)입니다.
@@ -29,5 +30,25 @@ class Settings:
     # 폴더 자동 생성
     os.makedirs(TEMP_DIR, exist_ok=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    def _load_system_config(self):
+        """Load system configuration (e.g., safety stock) from data directory."""
+        config_path = os.path.join(self.DATA_DIR, "system_config.json")
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return {}
+        except Exception:
+            return {}
+
+    @property
+    def SAFETY_STOCK(self) -> int:
+        """Return configured safety stock with a safe default of 0."""
+        config = self._load_system_config()
+        try:
+            return max(0, int(config.get("safety_stock", 0)))
+        except (TypeError, ValueError):
+            return 0
 
 settings = Settings()

@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 import os
 from datetime import datetime
@@ -69,6 +70,40 @@ class DocumentGenerator:
         filename = f"Order_Import_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         path = os.path.join(self.output_dir, filename)
         df.to_excel(path, index=False)
+        return f"/api/download/{filename}"
+
+    def generate_review_worksheet(self, validated_items):
+        """
+        Generate extended CSV worksheet for PO review.
+        
+        Columns:
+            DC_ID, Child_PO, SKU, Customer_Qty_Cases, Modified_Qty_Cases,
+            Current_Stock_MAIN, Current_Stock_SUB, Status_Label, Memo_Action
+        """
+        rows = []
+        for item in validated_items:
+            po_qty = int(item.get('po_qty', 0))
+            pack_size = int(item.get('pack_size', 1))
+            if pack_size < 1:
+                pack_size = 1
+            case_qty = int(item.get('case_qty', math.ceil(po_qty / pack_size)))
+
+            rows.append({
+                "DC_ID": str(item.get('dc_id', '')),
+                "Child_PO": str(item.get('sales_order_num', item.get('po_number', ''))),
+                "SKU": str(item.get('sku', '')),
+                "Customer_Qty_Cases": case_qty,
+                "Modified_Qty_Cases": "",
+                "Current_Stock_MAIN": int(item.get('available_main_stock', item.get('main_stock', 0))),
+                "Current_Stock_SUB": int(item.get('available_sub_stock', item.get('sub_stock', 0))),
+                "Status_Label": item.get('status_label', item.get('status', '')),
+                "Memo_Action": item.get('memo_action', ''),
+            })
+
+        df = pd.DataFrame(rows)
+        filename = f"Review_Worksheet_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        path = os.path.join(self.output_dir, filename)
+        df.to_csv(path, index=False)
         return f"/api/download/{filename}"
 
     def generate_packing_list(self, pallets, dc_lookup):
