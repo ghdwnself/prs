@@ -90,7 +90,12 @@ def validate_po_data(
         shortage = max(0, required_qty - available_stock)
 
         # Inventory status based on availability
-        inventory_status = STATUS_OK if shortage == 0 else STATUS_OUT_OF_STOCK
+        if shortage == 0:
+            inventory_status = STATUS_OK
+        elif available_stock > 0:
+            inventory_status = STATUS_MAIN_SHORT
+        else:
+            inventory_status = STATUS_OUT_OF_STOCK
 
         # Price check (Mother PO prioritised, but applied when both values exist)
         status_label = STATUS_OK
@@ -169,9 +174,9 @@ def get_validation_summary(validated_items: List[Dict[str, Any]]) -> Dict[str, A
         # Count by status
         if shortage_val == 0 and status == STATUS_OK:
             summary['ok_count'] += 1
-        elif shortage_val > 0 and available_stock > 0:
+        elif status == STATUS_MAIN_SHORT or (shortage_val > 0 and available_stock > 0):
             summary['main_short_count'] += 1
-        elif shortage_val > 0:
+        elif shortage_val > 0 or status == STATUS_OUT_OF_STOCK:
             summary['out_of_stock_count'] += 1
         
         # Price warnings
