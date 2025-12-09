@@ -33,7 +33,7 @@ def load_config():
     if not os.path.exists(CONFIG_FILE):
         return DEFAULT_CONFIG
     try:
-        with open(CONFIG_FILE, 'r') as f:
+        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             loaded = json.load(f)
             return {**DEFAULT_CONFIG, **loaded}
     except Exception as e:
@@ -42,7 +42,7 @@ def load_config():
 
 def save_config(config_data):
     os.makedirs(settings.DATA_DIR, exist_ok=True)
-    with open(CONFIG_FILE, 'w') as f:
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(config_data, f, indent=4)
 
 @router.get("/settings")

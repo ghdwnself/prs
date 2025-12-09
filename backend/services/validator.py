@@ -18,6 +18,17 @@ STATUS_PRICE_MISMATCH = "가격 불일치"
 STATUS_PRODUCT_MISSING = "제품 미등록"
 
 
+def resolve_safety_stock(safety_stock_value: Optional[int] = None) -> int:
+    """Resolve safety stock value with sane defaults."""
+    if safety_stock_value is None:
+        return getattr(settings, "SAFETY_STOCK", 0)
+    try:
+        return max(0, int(safety_stock_value))
+    except (TypeError, ValueError):
+        logger.warning("Invalid safety_stock_value provided. Falling back to 0.")
+        return getattr(settings, "SAFETY_STOCK", 0) or 0
+
+
 def validate_po_data(
     parsed_data_list: List[Dict[str, Any]],
     safety_stock_value: Optional[int] = None,
@@ -42,15 +53,7 @@ def validate_po_data(
         inventory_map = data_loader.inventory_map
     if product_map is None:
         product_map = data_loader.product_map
-
-    if safety_stock_value is None:
-        effective_safety_stock = getattr(settings, "SAFETY_STOCK", 0)
-    else:
-        try:
-            effective_safety_stock = max(0, int(safety_stock_value))
-        except (TypeError, ValueError):
-            logger.warning("Invalid safety_stock_value provided. Falling back to 0.")
-            effective_safety_stock = 0
+    effective_safety_stock = resolve_safety_stock(safety_stock_value)
 
     default_stock_mode = (stock_mode or "TOTAL").strip().upper()
     if default_stock_mode not in {"MAIN", "SUB", "TOTAL"}:
@@ -123,6 +126,7 @@ def validate_po_data(
             **item,  # Include all original fields
             'status': status,
             'status_label': status_label,
+            'inventory_status': inventory_status,
             'main_stock': main_stock,
             'sub_stock': sub_stock,
             'total_stock': total_stock,
@@ -171,6 +175,7 @@ def get_validation_summary(validated_items: List[Dict[str, Any]]) -> Dict[str, A
     for item in validated_items:
         status = item.get('status', '')
         status_label = item.get('status_label', '')
+        inventory_status_val = item.get('inventory_status', status)
         po_qty = int(item.get('po_qty', 0))
         dc_id = item.get('dc_id', 'N/A')
 
@@ -178,11 +183,11 @@ def get_validation_summary(validated_items: List[Dict[str, Any]]) -> Dict[str, A
         available_stock = int(item.get('available_stock', 0))
 
         # Count by status
-        if shortage_val == 0 and status == STATUS_OK:
+        if shortage_val == 0 and inventory_status_val == STATUS_OK:
             summary['ok_count'] += 1
-        elif status == STATUS_INVENTORY_LOW or (shortage_val > 0 and available_stock > 0):
+        elif inventory_status_val == STATUS_INVENTORY_LOW or (shortage_val > 0 and available_stock > 0):
             summary['main_short_count'] += 1
-        elif shortage_val > 0 or status == STATUS_OUT_OF_STOCK:
+        elif shortage_val > 0 or inventory_status_val == STATUS_OUT_OF_STOCK:
             summary['out_of_stock_count'] += 1
         
         # Price warnings

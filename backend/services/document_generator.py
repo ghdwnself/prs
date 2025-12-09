@@ -92,7 +92,8 @@ class DocumentGenerator:
             pack_size = int(item.get('pack_size', 1))
             if pack_size < 1:
                 pack_size = 1
-            case_qty = int(item.get('case_qty', math.ceil(po_qty / pack_size)))
+            default_case_qty = math.ceil(po_qty / pack_size)
+            case_qty = int(item.get('case_qty', default_case_qty))
 
             rows.append({
                 "DC_ID": str(item.get('dc_id', '')),

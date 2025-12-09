@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 # Config & Services
 from core.config import settings
 from services.po_parser import parse_po, parse_po_to_order_data
-from services.validator import validate_po_data, get_validation_summary
+from services.validator import validate_po_data, get_validation_summary, resolve_safety_stock
 from services.palletizer import Palletizer
 from services.document_generator import DocumentGenerator
 from services.firebase_service import firebase_manager
@@ -247,15 +247,7 @@ async def analyze_po(
             }
         
         # Determine safety stock (configurable, defaults to settings)
-        try:
-            configured_safety_stock = settings.SAFETY_STOCK
-        except Exception:
-            configured_safety_stock = 0
-        try:
-            effective_safety_stock = configured_safety_stock if safety_stock_value is None else max(0, int(safety_stock_value))
-        except (TypeError, ValueError):
-            logger.warning("Invalid safety_stock_value provided; using configured default.")
-            effective_safety_stock = configured_safety_stock
+        effective_safety_stock = resolve_safety_stock(safety_stock_value)
 
         # Validate PO data using the new validator
         validated_items = validate_po_data(
