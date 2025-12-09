@@ -7,6 +7,7 @@ import logging
 import pandas as pd
 import uuid
 import json
+import re
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
@@ -34,6 +35,20 @@ if os.path.exists(division_path):
         for _, row in df.iterrows(): DC_LOOKUP[str(row['DC#']).strip()] = row.to_dict()
     except Exception as e:
         logger.error(f"Failed to load DC lookup CSV: {e}")
+
+def _sanitize_filename(filename: str) -> str:
+    """
+    Sanitize filename to prevent path traversal and invalid characters.
+    Keeps only alphanumeric, dots, hyphens, and underscores.
+    """
+    # Remove path components
+    filename = os.path.basename(filename)
+    # Remove invalid characters (keep alphanumeric, dots, hyphens, underscores)
+    filename = re.sub(r'[^\w\-\.]', '_', filename)
+    # Prevent hidden files
+    if filename.startswith('.'):
+        filename = '_' + filename
+    return filename
 
 def _get_stock_value(data: Dict[str, Any], primary_key: str) -> int:
     return safe_int(data.get(primary_key))
@@ -210,8 +225,11 @@ async def validate_po_pair(
     
     try:
         # Generate UUID-based temp filenames to avoid collisions
-        mother_temp_path = os.path.join(settings.TEMP_DIR, f"{uuid.uuid4()}_{mother_file.filename}")
-        dc_temp_path = os.path.join(settings.TEMP_DIR, f"{uuid.uuid4()}_{dc_file.filename}")
+        # Sanitize filenames to prevent path traversal and invalid characters
+        mother_safe_name = _sanitize_filename(mother_file.filename)
+        dc_safe_name = _sanitize_filename(dc_file.filename)
+        mother_temp_path = os.path.join(settings.TEMP_DIR, f"{uuid.uuid4()}_{mother_safe_name}")
+        dc_temp_path = os.path.join(settings.TEMP_DIR, f"{uuid.uuid4()}_{dc_safe_name}")
         
         # Save uploaded files
         with open(mother_temp_path, "wb") as buffer:
@@ -375,7 +393,10 @@ async def validate_po_pair(
         # Save review to outputs/po_reviews/
         reviews_dir = os.path.join(settings.OUTPUT_DIR, "po_reviews")
         os.makedirs(reviews_dir, exist_ok=True)
-        review_filename = f"{timestamp.replace(':', '-')}_{mother_po_number}_vs_{dc_po_number}.json"
+        # Sanitize PO numbers for use in filename
+        safe_mother_po = re.sub(r'[^\w\-]', '_', str(mother_po_number))
+        safe_dc_po = re.sub(r'[^\w\-]', '_', str(dc_po_number))
+        review_filename = f"{timestamp.replace(':', '-')}_{safe_mother_po}_vs_{safe_dc_po}.json"
         review_path = os.path.join(reviews_dir, review_filename)
         
         with open(review_path, 'w', encoding='utf-8') as f:
