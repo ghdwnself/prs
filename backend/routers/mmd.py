@@ -33,6 +33,8 @@ if os.path.exists(division_path):
         logger.error(f"Failed to load DC lookup CSV: {e}")
 
 PRICE_TOLERANCE = 0.01
+PRICE_LABEL_MISMATCH = "가격 불일치"
+PRICE_LABEL_MISSING = "제품 미등록"
 
 # --- Helper Functions ---
 def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:
@@ -131,9 +133,9 @@ def _compute_available_stock(inv_entry: Dict[str, Any], scope: str, safety_stock
 def _evaluate_price_status(po_cost: float, system_cost: float) -> Dict[str, str]:
     """Return price label and message based on PO vs system price."""
     if system_cost <= 0:
-        return {"label": "제품 미등록", "message": "기준 단가 없음"}
+        return {"label": PRICE_LABEL_MISSING, "message": "기준 단가 없음"}
     if po_cost > 0 and abs(po_cost - system_cost) > PRICE_TOLERANCE:
-        return {"label": "가격 불일치", "message": f"PO: ${po_cost:.2f} / 기준: ${system_cost:.2f}"}
+        return {"label": PRICE_LABEL_MISMATCH, "message": f"PO: ${po_cost:.2f} / 기준: ${system_cost:.2f}"}
     return {"label": "OK", "message": ""}
 
 @router.post("/validate_dc_allocation")
@@ -257,7 +259,7 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
                     inv_price = float(inv_price_raw) if inv_price_raw not in [None, ""] else None
                 except (ValueError, TypeError):
                     inv_price = None
-                base_price = inv_price if inv_price is not None else float(po_cost)
+                base_price = inv_price if inv_price is not None else 0.0
                 system_amount = base_price * po_qty
                 po_amount = po_cost * po_qty
 
@@ -287,8 +289,8 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
         dc_validated = build_item_validation(dc_po_items, "child")
 
         exceptions = {
-            "price_mismatch": [r for r in mother_validated if r['price_label'] == "가격 불일치"],
-            "product_missing": [r for r in mother_validated if r['price_label'] == "제품 미등록"],
+            "price_mismatch": [r for r in mother_validated if r['price_label'] == PRICE_LABEL_MISMATCH],
+            "product_missing": [r for r in mother_validated if r['price_label'] == PRICE_LABEL_MISSING],
             "stock_shortage": [r for r in mother_validated + dc_validated if r['shortage'] > 0],
         }
 
@@ -305,19 +307,21 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
         mother_sys_amount = sum(r['system_amount'] for r in mother_validated)
         child_sys_amount = sum(r['system_amount'] for r in dc_validated)
 
-        qty_match = mother_tot_units == child_tot_units
-        amount_match = abs(child_sys_amount - mother_sys_amount) < PRICE_TOLERANCE
+        def build_totals_check() -> Dict[str, Any]:
+            qty_match = mother_tot_units == child_tot_units
+            amount_match = abs(child_sys_amount - mother_sys_amount) < PRICE_TOLERANCE
+            return {
+                "mother_units": mother_tot_units,
+                "child_units": child_tot_units,
+                "qty_diff": child_tot_units - mother_tot_units,
+                "mother_amount_system": mother_sys_amount,
+                "mother_amount_po": mother_po_total_amount,
+                "child_amount_system": child_sys_amount,
+                "amount_diff": child_sys_amount - mother_sys_amount,
+                "match": qty_match and amount_match,
+            }
 
-        totals_check = {
-            "mother_units": mother_tot_units,
-            "child_units": child_tot_units,
-            "qty_diff": child_tot_units - mother_tot_units,
-            "mother_amount_system": mother_sys_amount,
-            "mother_amount_po": mother_po_total_amount,
-            "child_amount_system": child_sys_amount,
-            "amount_diff": child_sys_amount - mother_sys_amount,
-            "match": qty_match and amount_match,
-        }
+        totals_check = build_totals_check()
 
         # CSV worksheet for exceptions / editing
         worksheet_url = None

@@ -211,6 +211,7 @@
                 });
                 
                 const result = await res.json();
+                // Maintain compatibility if API returns nested validation or flat result
                 displayValidationResults(result);
                 
                 validateBtn.disabled = false;
@@ -224,12 +225,12 @@
         });
         
         function displayValidationResults(result) {
-            const validation = result.validation || {};
+            const validation = result.validation || result || {};
             const mismatches = validation.mismatches || [];
             const totalMother = validation.total_skus_mother || 0;
-            const inventorySummary = result.inventory_summary || {};
-            const exceptions = result.exceptions || {};
-            const worksheetUrl = result.worksheet_url;
+            const inventorySummary = result.inventory_summary || validation.inventory_summary || {};
+            const exceptions = result.exceptions || validation.exceptions || {};
+            const worksheetUrl = result.worksheet_url || validation.worksheet_url;
             const resultDiv = document.getElementById('validationResult');
             const summaryDiv = document.getElementById('resultSummary');
             const invSummaryDiv = document.getElementById('inventorySummary');
