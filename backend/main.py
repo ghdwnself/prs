@@ -53,6 +53,8 @@ async def download_file(filename: str):
 # Static Files
 if os.path.exists(os.path.join(settings.FRONTEND_DIR, "assets")):
     app.mount("/assets", StaticFiles(directory=os.path.join(settings.FRONTEND_DIR, "assets")), name="assets")
+if os.path.exists(settings.DATA_DIR):
+    app.mount("/data", StaticFiles(directory=settings.DATA_DIR), name="data")
 if os.path.exists(settings.FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=settings.FRONTEND_DIR, html=True), name="frontend")
 
