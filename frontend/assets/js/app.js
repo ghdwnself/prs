@@ -125,3 +125,38 @@ window.formatDate = function(dateString) {
         day: 'numeric'
     });
 };
+
+// --- 6. Utility: Normalize Status ---
+window.normalizeStatus = function(rawStatus) {
+    if (!rawStatus) return 'warning';
+    
+    const status = String(rawStatus).toLowerCase();
+    
+    // Critical indicators
+    if (status.includes('critical') || status.includes('action') || 
+        status.includes('short') || status.includes('out of stock') || 
+        status.includes('🚨')) {
+        return 'critical';
+    }
+    
+    // Warning indicators
+    if (status.includes('warn') || status.includes('low') || 
+        status.includes('needs') || status.includes('⚠️')) {
+        return 'warning';
+    }
+    
+    // OK indicators
+    if (status.includes('ok') || status.includes('clear') || 
+        status.includes('good') || status === 'ok') {
+        return 'ok';
+    }
+    
+    // Default to warning for unknown statuses
+    return 'warning';
+};
+
+// --- 7. Utility: Get Status Display Text ---
+window.getStatusDisplay = function(rawStatus) {
+    if (!rawStatus) return 'Unknown';
+    return String(rawStatus);
+};
