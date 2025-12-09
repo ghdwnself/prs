@@ -117,7 +117,11 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
         mother_totals = {}
         for item in mother_po_items:
             sku = str(item.get('sku', '')).strip()
-            qty = int(item.get('po_qty', 0))
+            try:
+                qty = int(item.get('po_qty', 0))
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid po_qty for SKU {sku} in Mother PO, using 0")
+                qty = 0
             mother_totals[sku] = mother_totals.get(sku, 0) + qty
         
         # Build DC PO totals by SKU
@@ -126,7 +130,11 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
         for item in dc_po_items:
             sku = str(item.get('sku', '')).strip()
             dc_id = str(item.get('dc_id', '')).strip()
-            qty = int(item.get('po_qty', 0))
+            try:
+                qty = int(item.get('po_qty', 0))
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid po_qty for SKU {sku} in DC PO, using 0")
+                qty = 0
             
             dc_totals[sku] = dc_totals.get(sku, 0) + qty
             

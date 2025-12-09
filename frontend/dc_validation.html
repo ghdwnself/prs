@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DC Allocation Validation - POReviewSystem</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        .validation-card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .upload-section { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+        .drop-zone-small { 
+            border: 2px dashed var(--border-color); 
+            border-radius: 8px; 
+            padding: 32px; 
+            text-align: center; 
+            cursor: pointer; 
+            transition: all 0.3s;
+        }
+        .drop-zone-small:hover { border-color: var(--primary-color); background: #f8fafc; }
+        .validation-result { display: none; margin-top: 24px; }
+        .mismatch-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .mismatch-table th { background: #f8fafc; padding: 12px; text-align: left; font-size: 0.85rem; border-bottom: 2px solid #e2e8f0; }
+        .mismatch-table td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+        .status-over { background-color: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 4px; font-weight: 600; }
+        .status-under { background-color: #fee2e2; color: #991b1b; padding: 4px 8px; border-radius: 4px; font-weight: 600; }
+        .status-extra { background-color: #fce7f3; color: #831843; padding: 4px 8px; border-radius: 4px; font-weight: 600; }
+        .success-banner { background: #d1fae5; color: #065f46; padding: 16px; border-radius: 8px; text-align: center; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <nav class="sidebar">
+            <div class="sidebar-header">PO<span class="brand-highlight">Review</span></div>
+            <ul class="nav-links">
+                <li class="nav-item"><a href="index.html" class="nav-link"><span class="nav-icon">📊</span> Dashboard</a></li>
+                <li class="nav-item"><a href="mmd.html" class="nav-link"><span class="nav-icon">📄</span> MMD (Auto)</a></li>
+                <li class="nav-item"><a href="emd.html" class="nav-link"><span class="nav-icon">✍️</span> EMD (Manual)</a></li>
+                <li class="nav-item"><a href="dc_validation.html" class="nav-link active"><span class="nav-icon">🔍</span> DC Validation</a></li>
+                <li class="nav-item"><a href="admin.html" class="nav-link"><span class="nav-icon">⚙️</span> Admin</a></li>
+            </ul>
+        </nav>
+        
+        <main class="main-content">
+            <header class="top-header">
+                <div class="page-title">DC PO Allocation Validation</div>
+                <div class="user-profile"><span>User</span><div class="avatar">U</div></div>
+            </header>
+            
+            <div class="content-body" style="max-width: 1200px; margin: 0 auto;">
+                
+                <div class="validation-card">
+                    <h3 style="margin-bottom: 16px;">📋 Verify DC Allocations Against Mother PO</h3>
+                    <p style="color: var(--text-muted); margin-bottom: 24px;">
+                        Upload both Mother PO and DC PO files to validate that DC allocations match the Mother PO requirements.
+                    </p>
+                    
+                    <div class="upload-section">
+                        <div>
+                            <label style="font-weight: 600; display: block; margin-bottom: 8px;">Mother PO (PDF)</label>
+                            <div class="drop-zone-small" id="motherPoZone">
+                                <div style="font-size: 32px; margin-bottom: 8px;">📄</div>
+                                <div id="motherPoText">Upload Mother PO</div>
+                                <input type="file" id="motherPoInput" accept=".pdf" style="display: none;">
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label style="font-weight: 600; display: block; margin-bottom: 8px;">DC PO (PDF)</label>
+                            <div class="drop-zone-small" id="dcPoZone">
+                                <div style="font-size: 32px; margin-bottom: 8px;">📄</div>
+                                <div id="dcPoText">Upload DC PO</div>
+                                <input type="file" id="dcPoInput" accept=".pdf" style="display: none;">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="text-align: center;">
+                        <button id="validateBtn" class="btn btn-primary" disabled>
+                            🔍 Validate Allocations
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="validationResult" class="validation-result">
+                    <div class="validation-card">
+                        <h3 style="margin-bottom: 16px;">Validation Results</h3>
+                        
+                        <div id="resultSummary"></div>
+                        
+                        <div id="mismatchSection" style="margin-top: 24px;">
+                            <h4 style="margin-bottom: 12px;">Allocation Mismatches</h4>
+                            <table class="mismatch-table">
+                                <thead>
+                                    <tr>
+                                        <th>SKU</th>
+                                        <th>Mother PO Qty</th>
+                                        <th>DC Total Qty</th>
+                                        <th>Difference</th>
+                                        <th>Status</th>
+                                        <th>DC Breakdown</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mismatchTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                
+            </div>
+        </main>
+    </div>
+    
+    <script src="assets/js/app.js"></script>
+    <script>
+        let motherPoData = null;
+        let dcPoData = null;
+        
+        // Setup file inputs
+        const motherPoZone = document.getElementById('motherPoZone');
+        const motherPoInput = document.getElementById('motherPoInput');
+        const dcPoZone = document.getElementById('dcPoZone');
+        const dcPoInput = document.getElementById('dcPoInput');
+        const validateBtn = document.getElementById('validateBtn');
+        
+        motherPoZone.addEventListener('click', () => motherPoInput.click());
+        dcPoZone.addEventListener('click', () => dcPoInput.click());
+        
+        motherPoInput.addEventListener('change', async (e) => {
+            if (e.target.files[0]) {
+                document.getElementById('motherPoText').textContent = 'Processing...';
+                motherPoData = await uploadAndAnalyzePO(e.target.files[0]);
+                document.getElementById('motherPoText').innerHTML = `✅ ${e.target.files[0].name}`;
+                checkValidateButton();
+            }
+        });
+        
+        dcPoInput.addEventListener('change', async (e) => {
+            if (e.target.files[0]) {
+                document.getElementById('dcPoText').textContent = 'Processing...';
+                dcPoData = await uploadAndAnalyzePO(e.target.files[0]);
+                document.getElementById('dcPoText').innerHTML = `✅ ${e.target.files[0].name}`;
+                checkValidateButton();
+            }
+        });
+        
+        function checkValidateButton() {
+            validateBtn.disabled = !(motherPoData && dcPoData);
+        }
+        
+        async function uploadAndAnalyzePO(file) {
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const res = await fetch('/api/analyze_po', { method: 'POST', body: formData });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    return data.raw_data;
+                } else {
+                    alert('Failed to analyze PO: ' + data.message);
+                    return null;
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+                return null;
+            }
+        }
+        
+        validateBtn.addEventListener('click', async () => {
+            try {
+                validateBtn.disabled = true;
+                validateBtn.textContent = '🔄 Validating...';
+                
+                const payload = {
+                    mother_po_items: motherPoData,
+                    dc_po_items: dcPoData
+                };
+                
+                const res = await fetch('/api/validate_dc_allocation', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                
+                const result = await res.json();
+                displayValidationResults(result.validation);
+                
+                validateBtn.disabled = false;
+                validateBtn.textContent = '🔍 Validate Allocations';
+                
+            } catch (err) {
+                alert('Validation error: ' + err.message);
+                validateBtn.disabled = false;
+                validateBtn.textContent = '🔍 Validate Allocations';
+            }
+        });
+        
+        function displayValidationResults(validation) {
+            const resultDiv = document.getElementById('validationResult');
+            const summaryDiv = document.getElementById('resultSummary');
+            const tbody = document.getElementById('mismatchTableBody');
+            
+            resultDiv.style.display = 'block';
+            
+            // Summary
+            if (validation.is_valid) {
+                summaryDiv.innerHTML = `
+                    <div class="success-banner">
+                        ✅ All DC allocations match Mother PO requirements! (${validation.total_skus_mother} SKUs validated)
+                    </div>
+                `;
+                document.getElementById('mismatchSection').style.display = 'none';
+            } else {
+                summaryDiv.innerHTML = `
+                    <div style="background: #fef2f2; color: #991b1b; padding: 16px; border-radius: 8px; font-weight: 600; text-align: center;">
+                        ⚠️ Found ${validation.mismatches.length} mismatched SKU(s) out of ${validation.total_skus_mother} total
+                    </div>
+                `;
+                
+                // Mismatches table
+                tbody.innerHTML = '';
+                validation.mismatches.forEach(mismatch => {
+                    const statusClass = `status-${mismatch.status}`;
+                    const statusText = mismatch.status === 'over' ? '⬆️ Over-allocated' : 
+                                     mismatch.status === 'under' ? '⬇️ Under-allocated' : 
+                                     '➕ Extra SKU';
+                    
+                    const dcBreakdown = mismatch.dc_breakdown.map(dc => 
+                        `DC#${dc.dc_id}: ${dc.qty}`
+                    ).join(', ');
+                    
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><strong>${mismatch.sku}</strong></td>
+                        <td class="text-right">${mismatch.mother_qty}</td>
+                        <td class="text-right">${mismatch.dc_total}</td>
+                        <td class="text-right"><strong>${mismatch.difference > 0 ? '+' : ''}${mismatch.difference}</strong></td>
+                        <td><span class="${statusClass}">${statusText}</span></td>
+                        <td style="font-size: 0.85rem;">${dcBreakdown}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+                
+                document.getElementById('mismatchSection').style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

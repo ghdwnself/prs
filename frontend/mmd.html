@@ -310,7 +310,10 @@
                     
                     tableHtml += `
                         <tr class="${rowClass}">
-                            <td><span class="${statusClass} ${stockStatusClass}">${getStatusDisplay(rawStatus)}</span></td>
+                            <td>
+                                <span class="${statusClass}">${getStatusDisplay(rawStatus)}</span>
+                                <br><span class="${stockStatusClass}" style="font-size: 0.75rem; margin-top: 2px; display: inline-block;"></span>
+                            </td>
                             <td>${sku}</td>
                             <td>${desc}${needsEllipsis ? '...' : ''}</td>
                             <td class="text-right">${poQty}</td>
