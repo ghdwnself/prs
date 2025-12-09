@@ -80,6 +80,18 @@ echo "========================================"
 echo " Starting FastAPI Server..."
 echo "========================================"
 echo ""
+
+# Check if backend directory exists
+if [ ! -d "backend" ]; then
+    echo "[ERROR] Backend directory not found!"
+    echo ""
+    echo "Please make sure you're running this script from the project root directory."
+    echo "Expected structure: project_root/backend/main.py"
+    echo ""
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
 echo "Server will start on: http://localhost:8001"
 echo ""
 echo "Press Ctrl+C to stop the server."
