@@ -87,7 +87,7 @@
                         <label class="scope-pill"><input type="radio" name="invScope" value="ALL" checked> MAIN + SUB (기본)</label>
                         <label class="scope-pill"><input type="radio" name="invScope" value="MAIN"> MAIN만</label>
                         <label class="scope-pill"><input type="radio" name="invScope" value="SUB"> SUB만</label>
-                        <span style="color: var(--text-muted); font-size: 0.9rem;">안전재고 60 차감 후 비교</span>
+                        <span style="color: var(--text-muted); font-size: 0.9rem;">안전재고 <span id="safetyStockDisplay">60</span> 차감 후 비교</span>
                     </div>
                     
                     <div style="text-align: center;">
@@ -137,6 +137,7 @@
         const SAFETY_STOCK = 60;
         let motherPoData = null;
         let dcPoData = null;
+        document.getElementById('safetyStockDisplay').textContent = SAFETY_STOCK;
         
         // Setup file inputs
         const motherPoZone = document.getElementById('motherPoZone');

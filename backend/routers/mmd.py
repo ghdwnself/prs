@@ -225,10 +225,11 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
         }
 
         # --- Extended validation: price, inventory, totals ---
-        all_skus = list(set(list(mother_totals.keys()) + list(dc_totals.keys())))
+        all_skus = list(set(mother_totals.keys()) | set(dc_totals.keys()))
         inv_map = get_inventory_data(all_skus)
         
         def build_item_validation(items: List[Dict[str, Any]], role: str) -> List[Dict[str, Any]]:
+            default_inv = {'locations': {'MAIN': 0, 'SUB': 0}, 'price': 0.0}
             validated_rows = []
             for item in items:
                 sku = str(item.get('sku', '')).strip()
@@ -244,15 +245,18 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
                 except (ValueError, TypeError):
                     po_cost = 0.0
 
-                inv_entry = inv_map.get(sku, {'locations': {'MAIN': 0, 'SUB': 0}, 'price': 0.0})
+                inv_entry = inv_map.get(sku, default_inv)
                 stock_info = _compute_available_stock(inv_entry, inventory_scope, safety_stock)
                 price_info = _evaluate_price_status(po_cost, float(inv_entry.get('price', 0.0) or 0.0))
                 
                 shortage = max(po_qty - stock_info['available'], 0)
                 stock_label = "재고충분" if shortage <= 0 else "재고부족"
-                status_message = price_info['message']
+                message_parts = []
+                if price_info['message']:
+                    message_parts.append(price_info['message'])
                 if shortage > 0:
-                    status_message = (status_message + " / " if status_message else "") + f"부족 {shortage}ea"
+                    message_parts.append(f"부족 {shortage}ea")
+                status_message = " / ".join(message_parts)
 
                 inv_price_raw = inv_entry.get('price', None)
                 try:
