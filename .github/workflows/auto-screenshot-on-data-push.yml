@@ -58,9 +58,6 @@ jobs:
       - name: Run screenshot script
         run: |
           python .github/actions-scripts/screenshot_po.py
-        env:
-          # 필요시 여기에 환경변수 추가 (예: FIREBASE_CRED_PATH)
-          # FIREBASE_CRED_PATH: serviceAccountKey.json
 
       - name: Upload screenshots as artifact
         uses: actions/upload-artifact@v4
