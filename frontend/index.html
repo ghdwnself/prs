@@ -3,11 +3,126 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - POReviewSystem</title>
+    <title>Mother+DC PO Validation - POReviewSystem</title>
     <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        .validation-container { max-width: 1400px; margin: 0 auto; }
+        .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+        @media (max-width: 900px) { .upload-grid { grid-template-columns: 1fr; } }
+        
+        .upload-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 40px 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: white;
+        }
+        .upload-zone:hover { border-color: var(--primary-color); background: #FAFAFA; }
+        .upload-zone.has-file { border-color: #10b981; background: #ecfdf5; }
+        .upload-zone-icon { font-size: 48px; margin-bottom: 12px; }
+        .upload-zone-text { font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+        .upload-zone-hint { font-size: 0.85rem; color: var(--text-muted); }
+        
+        .validation-section { display: none; margin-top: 32px; }
+        .validation-section.active { display: block; }
+        
+        .summary-banner {
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 24px;
+        }
+        .summary-banner.success { background: #d1fae5; color: #065f46; }
+        .summary-banner.warning { background: #fef3c7; color: #92400e; }
+        .summary-banner.error { background: #fee2e2; color: #991b1b; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: white;
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .stat-label { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px; }
+        .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--primary-color); }
+        .stat-value.danger { color: #dc2626; }
+        .stat-value.warning { color: #ea580c; }
+        
+        .results-table { width: 100%; border-collapse: collapse; margin-top: 16px; background: white; }
+        .results-table th {
+            background: #f8fafc;
+            padding: 12px;
+            text-align: left;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .results-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 0.9rem;
+        }
+        .results-table tr:hover { background: #fafafa; }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .status-over { background: #fef3c7; color: #92400e; }
+        .status-under { background: #fee2e2; color: #991b1b; }
+        .status-extra { background: #fce7f3; color: #831843; }
+        .status-inventory-low { background: #fef3c7; color: #92400e; }
+        .status-out-of-stock { background: #fee2e2; color: #991b1b; }
+        
+        .dc-breakdown { font-size: 0.85rem; color: var(--text-muted); }
+        
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 24px;
+        }
+        
+        .recent-reviews {
+            margin-top: 32px;
+        }
+        .review-item {
+            background: white;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border-left: 4px solid var(--primary-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .review-info { flex: 1; }
+        .review-title { font-weight: 600; margin-bottom: 4px; }
+        .review-meta { font-size: 0.85rem; color: var(--text-muted); }
+        .review-badge {
+            background: #f1f5f9;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .review-badge.issues { background: #fee2e2; color: #991b1b; }
+    </style>
 </head>
 <body>
-
     <div class="app-container">
         <!-- Sidebar -->
         <nav class="sidebar">
@@ -17,7 +132,7 @@
             <ul class="nav-links">
                 <li class="nav-item">
                     <a href="index.html" class="nav-link active">
-                        <span class="nav-icon">📊</span> Dashboard
+                        <span class="nav-icon">🔍</span> PO Validation
                     </a>
                 </li>
                 <li class="nav-item">
@@ -47,7 +162,7 @@
         <main class="main-content">
             <!-- Top Header -->
             <header class="top-header">
-                <div class="page-title">Dashboard Overview</div>
+                <div class="page-title">Mother+DC PO Validation</div>
                 <div class="user-profile">
                     <span>Welcome, User</span>
                     <div class="avatar">U</div>
@@ -56,49 +171,428 @@
 
             <!-- Content Body -->
             <div class="content-body">
-                
-                <!-- Welcome Card -->
-                <div class="card">
-                    <div class="card-header">
-                        <div class="card-title">👋 Welcome to PalletOptimizer</div>
-                    </div>
-                    <p style="color: var(--text-muted);">
-                        Select a module from the sidebar to begin processing orders.
-                    </p>
-                </div>
-
-                <!-- Quick Actions Grid -->
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+                <div class="validation-container">
                     
-                    <!-- MMD Card -->
-                    <div class="card" style="cursor: pointer;" onclick="location.href='mmd.html'">
+                    <!-- Upload Section -->
+                    <div class="card">
                         <div class="card-header">
-                            <div class="card-title">📄 MMD Module</div>
-                            <span style="background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">Active</span>
+                            <div class="card-title">📋 PO 파일 업로드</div>
                         </div>
-                        <p style="color: var(--text-muted); margin-bottom: 16px;">
-                            Upload PDF Purchase Orders to automatically extract data and generate pallet plans.
+                        <p style="color: var(--text-muted); margin-bottom: 24px;">
+                            Mother PO와 DC PO를 업로드하여 할당량 검증 및 재고 확인을 수행합니다.
                         </p>
-                        <button class="btn btn-primary">Go to MMD →</button>
-                    </div>
-
-                    <!-- EMD Card -->
-                    <div class="card" style="cursor: pointer;" onclick="location.href='emd.html'">
-                        <div class="card-header">
-                            <div class="card-title">✍️ EMD Module</div>
-                            <span style="background: #fef9c3; color: #854d0e; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">Beta</span>
+                        
+                        <div class="upload-grid">
+                            <!-- Mother PO Upload -->
+                            <div>
+                                <label style="font-weight: 600; display: block; margin-bottom: 8px;">Mother PO (총괄 PO)</label>
+                                <div class="upload-zone" id="motherPoZone">
+                                    <div class="upload-zone-icon">📄</div>
+                                    <div class="upload-zone-text" id="motherPoText">PDF 파일 선택</div>
+                                    <div class="upload-zone-hint">클릭하여 업로드</div>
+                                    <input type="file" id="motherPoInput" accept=".pdf" style="display: none;">
+                                </div>
+                            </div>
+                            
+                            <!-- DC PO Upload -->
+                            <div>
+                                <label style="font-weight: 600; display: block; margin-bottom: 8px;">DC PO (DC별 할당 PO)</label>
+                                <div class="upload-zone" id="dcPoZone">
+                                    <div class="upload-zone-icon">📄</div>
+                                    <div class="upload-zone-text" id="dcPoText">PDF 파일 선택</div>
+                                    <div class="upload-zone-hint">클릭하여 업로드</div>
+                                    <input type="file" id="dcPoInput" accept=".pdf" style="display: none;">
+                                </div>
+                            </div>
                         </div>
-                        <p style="color: var(--text-muted); margin-bottom: 16px;">
-                            Manually create orders and sync directly with the cloud database.
-                        </p>
-                        <button class="btn btn-secondary">Go to EMD →</button>
+                        
+                        <div style="text-align: center; margin-top: 24px;">
+                            <button id="validateBtn" class="btn btn-primary" disabled style="min-width: 200px;">
+                                🔍 검증 시작
+                            </button>
+                            <button id="clearBtn" class="btn btn-secondary" style="min-width: 120px; margin-left: 12px;">
+                                🔄 초기화
+                            </button>
+                        </div>
                     </div>
-
+                    
+                    <!-- Validation Results Section -->
+                    <div id="validationResults" class="validation-section">
+                        
+                        <!-- Summary Banner -->
+                        <div id="summaryBanner"></div>
+                        
+                        <!-- Stats Grid -->
+                        <div class="stats-grid" id="statsGrid"></div>
+                        
+                        <!-- Mismatches Section -->
+                        <div id="mismatchSection" class="card" style="display: none;">
+                            <div class="card-header">
+                                <div class="card-title">⚠️ 할당량 불일치 항목</div>
+                            </div>
+                            <table class="results-table">
+                                <thead>
+                                    <tr>
+                                        <th>SKU</th>
+                                        <th>Mother PO 수량</th>
+                                        <th>DC 총합 수량</th>
+                                        <th>차이</th>
+                                        <th>상태</th>
+                                        <th>DC별 할당</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mismatchTableBody"></tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- Inventory Warnings Section -->
+                        <div id="inventorySection" class="card" style="display: none; margin-top: 24px;">
+                            <div class="card-header">
+                                <div class="card-title">📦 재고 부족 경고</div>
+                            </div>
+                            <table class="results-table">
+                                <thead>
+                                    <tr>
+                                        <th>SKU</th>
+                                        <th>PO 수량</th>
+                                        <th>가용 재고</th>
+                                        <th>부족 수량</th>
+                                        <th>상태</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="inventoryTableBody"></tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- Action Buttons -->
+                        <div class="action-buttons">
+                            <button id="downloadCsvBtn" class="btn btn-primary">
+                                📥 불일치 항목 CSV 다운로드
+                            </button>
+                            <button id="generateOrderBtn" class="btn btn-success">
+                                📋 Order Import 생성
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Recent Reviews Widget -->
+                    <div class="recent-reviews">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">📜 최근 검증 기록</div>
+                            </div>
+                            <div id="recentReviewsList">
+                                <p style="color: var(--text-muted); text-align: center; padding: 20px;">
+                                    로딩 중...
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
                 </div>
             </div>
         </main>
     </div>
 
     <script src="assets/js/app.js"></script>
+    <script>
+        const API = 'http://localhost:8001';
+        let motherFile = null;
+        let dcFile = null;
+        let validationData = null;
+        
+        // DOM elements
+        const motherPoZone = document.getElementById('motherPoZone');
+        const motherPoInput = document.getElementById('motherPoInput');
+        const motherPoText = document.getElementById('motherPoText');
+        
+        const dcPoZone = document.getElementById('dcPoZone');
+        const dcPoInput = document.getElementById('dcPoInput');
+        const dcPoText = document.getElementById('dcPoText');
+        
+        const validateBtn = document.getElementById('validateBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const validationResults = document.getElementById('validationResults');
+        
+        // File upload handlers (prevent re-opening bug)
+        motherPoZone.addEventListener('click', (e) => {
+            e.stopPropagation();
+            motherPoInput.click();
+        });
+        
+        dcPoZone.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dcPoInput.click();
+        });
+        
+        motherPoInput.addEventListener('change', (e) => {
+            e.stopPropagation();
+            const file = e.target.files[0];
+            if (file) {
+                motherFile = file;
+                motherPoZone.classList.add('has-file');
+                motherPoText.textContent = `✅ ${file.name}`;
+                checkValidateButton();
+            }
+        });
+        
+        dcPoInput.addEventListener('change', (e) => {
+            e.stopPropagation();
+            const file = e.target.files[0];
+            if (file) {
+                dcFile = file;
+                dcPoZone.classList.add('has-file');
+                dcPoText.textContent = `✅ ${file.name}`;
+                checkValidateButton();
+            }
+        });
+        
+        function checkValidateButton() {
+            validateBtn.disabled = !(motherFile && dcFile);
+        }
+        
+        // Clear/Reset
+        clearBtn.addEventListener('click', () => {
+            motherFile = null;
+            dcFile = null;
+            motherPoInput.value = '';
+            dcPoInput.value = '';
+            motherPoZone.classList.remove('has-file');
+            dcPoZone.classList.remove('has-file');
+            motherPoText.textContent = 'PDF 파일 선택';
+            dcPoText.textContent = 'PDF 파일 선택';
+            validationResults.classList.remove('active');
+            checkValidateButton();
+        });
+        
+        // Validate
+        validateBtn.addEventListener('click', async () => {
+            try {
+                validateBtn.disabled = true;
+                validateBtn.textContent = '🔄 검증 중...';
+                
+                const formData = new FormData();
+                formData.append('mother_file', motherFile);
+                formData.append('dc_file', dcFile);
+                
+                const res = await fetch(`${API}/api/validate_po_pair`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    throw new Error(errorText);
+                }
+                
+                const result = await res.json();
+                validationData = result.validation;
+                
+                displayValidationResults(validationData);
+                loadRecentReviews();
+                
+                validateBtn.disabled = false;
+                validateBtn.textContent = '🔍 검증 시작';
+                
+            } catch (err) {
+                alert(`검증 오류: ${err.message}`);
+                validateBtn.disabled = false;
+                validateBtn.textContent = '🔍 검증 시작';
+            }
+        });
+        
+        function displayValidationResults(validation) {
+            validationResults.classList.add('active');
+            
+            const summary = validation.summary;
+            const mismatches = validation.mismatches || [];
+            const inventoryWarnings = validation.inventory_warnings || [];
+            
+            // Summary Banner
+            const summaryBanner = document.getElementById('summaryBanner');
+            if (validation.is_valid) {
+                summaryBanner.className = 'summary-banner success';
+                summaryBanner.innerHTML = '✅ 모든 검증 통과! DC 할당량이 Mother PO와 일치하며 재고도 충분합니다.';
+            } else if (mismatches.length > 0 && inventoryWarnings.length > 0) {
+                summaryBanner.className = 'summary-banner error';
+                summaryBanner.innerHTML = `⚠️ 할당 불일치 ${mismatches.length}건 및 재고 부족 ${inventoryWarnings.length}건 발견`;
+            } else if (mismatches.length > 0) {
+                summaryBanner.className = 'summary-banner warning';
+                summaryBanner.innerHTML = `⚠️ 할당 불일치 ${mismatches.length}건 발견`;
+            } else {
+                summaryBanner.className = 'summary-banner warning';
+                summaryBanner.innerHTML = `⚠️ 재고 부족 ${inventoryWarnings.length}건 발견`;
+            }
+            
+            // Stats Grid
+            const statsGrid = document.getElementById('statsGrid');
+            statsGrid.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-label">일치 SKU</div>
+                    <div class="stat-value">${summary.matching_skus}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">불일치 SKU</div>
+                    <div class="stat-value ${summary.mismatched_skus > 0 ? 'danger' : ''}">${summary.mismatched_skus}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">초과 할당</div>
+                    <div class="stat-value ${summary.over_allocated > 0 ? 'warning' : ''}">${summary.over_allocated}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">미달 할당</div>
+                    <div class="stat-value ${summary.under_allocated > 0 ? 'danger' : ''}">${summary.under_allocated}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">추가 SKU</div>
+                    <div class="stat-value ${summary.extra_skus > 0 ? 'warning' : ''}">${summary.extra_skus}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">재고 경고</div>
+                    <div class="stat-value ${summary.total_inventory_warnings > 0 ? 'danger' : ''}">${summary.total_inventory_warnings}</div>
+                </div>
+            `;
+            
+            // Mismatches Table
+            const mismatchSection = document.getElementById('mismatchSection');
+            const mismatchTableBody = document.getElementById('mismatchTableBody');
+            
+            if (mismatches.length > 0) {
+                mismatchSection.style.display = 'block';
+                mismatchTableBody.innerHTML = '';
+                
+                mismatches.forEach(item => {
+                    const statusClass = `status-${item.status}`;
+                    const statusText = item.status === 'over' ? '⬆️ 초과' : 
+                                      item.status === 'under' ? '⬇️ 미달' : 
+                                      '➕ 추가';
+                    
+                    const dcBreakdown = item.dc_breakdown.map(dc => 
+                        `DC#${dc.dc_id}: ${dc.qty}`
+                    ).join(', ');
+                    
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><strong>${item.sku}</strong></td>
+                        <td>${item.mother_qty}</td>
+                        <td>${item.dc_total}</td>
+                        <td><strong>${item.difference > 0 ? '+' : ''}${item.difference}</strong></td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        <td class="dc-breakdown">${dcBreakdown}</td>
+                    `;
+                    mismatchTableBody.appendChild(tr);
+                });
+            } else {
+                mismatchSection.style.display = 'none';
+            }
+            
+            // Inventory Warnings Table
+            const inventorySection = document.getElementById('inventorySection');
+            const inventoryTableBody = document.getElementById('inventoryTableBody');
+            
+            if (inventoryWarnings.length > 0) {
+                inventorySection.style.display = 'block';
+                inventoryTableBody.innerHTML = '';
+                
+                inventoryWarnings.forEach(item => {
+                    const statusClass = item.status === '🚨 Out of Stock' ? 'status-out-of-stock' : 'status-inventory-low';
+                    const statusText = item.available_stock === 0 ? '🚨 재고 없음' : '⚠️ 재고 부족';
+                    
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><strong>${item.sku}</strong></td>
+                        <td>${item.po_qty}</td>
+                        <td>${item.available_stock}</td>
+                        <td><strong>${item.shortage}</strong></td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                    `;
+                    inventoryTableBody.appendChild(tr);
+                });
+            } else {
+                inventorySection.style.display = 'none';
+            }
+        }
+        
+        // Download CSV
+        document.getElementById('downloadCsvBtn').addEventListener('click', () => {
+            if (!validationData || !validationData.mismatches) {
+                alert('다운로드할 불일치 항목이 없습니다.');
+                return;
+            }
+            
+            const mismatches = validationData.mismatches;
+            let csv = 'SKU,Mother PO Qty,DC Total Qty,Difference,Status,DC Breakdown\n';
+            
+            mismatches.forEach(item => {
+                const dcBreakdown = item.dc_breakdown.map(dc => `DC#${dc.dc_id}:${dc.qty}`).join('; ');
+                const statusText = item.status === 'over' ? 'Over' : item.status === 'under' ? 'Under' : 'Extra';
+                csv += `${item.sku},${item.mother_qty},${item.dc_total},${item.difference},${statusText},"${dcBreakdown}"\n`;
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `po_mismatches_${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+        });
+        
+        // Generate Order Import
+        document.getElementById('generateOrderBtn').addEventListener('click', () => {
+            if (!validationData) {
+                alert('먼저 검증을 수행해주세요.');
+                return;
+            }
+            
+            const hasMismatches = validationData.mismatches && validationData.mismatches.length > 0;
+            
+            if (hasMismatches) {
+                const confirmed = confirm('⚠️ 불일치 항목이 있습니다. 그래도 Order Import를 생성하시겠습니까?');
+                if (!confirmed) return;
+            }
+            
+            alert('Order Import 생성 기능은 추후 구현 예정입니다.\n현재는 MMD 페이지에서 생성 가능합니다.');
+        });
+        
+        // Load Recent Reviews
+        async function loadRecentReviews() {
+            try {
+                const res = await fetch(`${API}/api/po_reviews?limit=5`);
+                const result = await res.json();
+                
+                const reviewsList = document.getElementById('recentReviewsList');
+                
+                if (result.status === 'success' && result.data.length > 0) {
+                    reviewsList.innerHTML = '';
+                    
+                    result.data.forEach(review => {
+                        const hasIssues = review.mismatch_count > 0 || review.inventory_warning_count > 0;
+                        const timestamp = new Date(review.timestamp).toLocaleString('ko-KR');
+                        
+                        const div = document.createElement('div');
+                        div.className = 'review-item';
+                        div.innerHTML = `
+                            <div class="review-info">
+                                <div class="review-title">${review.mother_po} vs ${review.dc_po}</div>
+                                <div class="review-meta">
+                                    ${timestamp}
+                                    <span class="review-badge ${hasIssues ? 'issues' : ''}">
+                                        불일치: ${review.mismatch_count} | 재고경고: ${review.inventory_warning_count}
+                                    </span>
+                                </div>
+                            </div>
+                        `;
+                        reviewsList.appendChild(div);
+                    });
+                } else {
+                    reviewsList.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">검증 기록이 없습니다.</p>';
+                }
+            } catch (err) {
+                console.error('Failed to load recent reviews:', err);
+            }
+        }
+        
+        // Initialize
+        loadRecentReviews();
+    </script>
 </body>
 </html>

@@ -5,6 +5,9 @@ import shutil
 import math
 import logging
 import pandas as pd
+import uuid
+import json
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 # Config & Services
@@ -191,6 +194,215 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
     except Exception as e:
         logger.error(f"Error validating DC allocation: {e}")
         raise HTTPException(500, str(e))
+
+
+@router.post("/validate_po_pair")
+async def validate_po_pair(
+    mother_file: UploadFile = File(...),
+    dc_file: UploadFile = File(...)
+):
+    """
+    Validate Mother PO against DC PO in a single request.
+    Parses both PDFs, compares allocations, and validates inventory.
+    """
+    mother_temp_path = None
+    dc_temp_path = None
+    
+    try:
+        # Generate UUID-based temp filenames to avoid collisions
+        mother_temp_path = os.path.join(settings.TEMP_DIR, f"{uuid.uuid4()}_{mother_file.filename}")
+        dc_temp_path = os.path.join(settings.TEMP_DIR, f"{uuid.uuid4()}_{dc_file.filename}")
+        
+        # Save uploaded files
+        with open(mother_temp_path, "wb") as buffer:
+            shutil.copyfileobj(mother_file.file, buffer)
+        with open(dc_temp_path, "wb") as buffer:
+            shutil.copyfileobj(dc_file.file, buffer)
+        
+        # Parse Mother PO
+        mother_items, mother_error = parse_po(mother_temp_path)
+        if mother_error:
+            raise HTTPException(400, f"Failed to parse Mother PO: {mother_error}")
+        
+        # Parse DC PO
+        dc_items, dc_error = parse_po(dc_temp_path)
+        if dc_error:
+            raise HTTPException(400, f"Failed to parse DC PO: {dc_error}")
+        
+        # Extract PO numbers and ship windows
+        mother_po_number = mother_items[0].get('po_number', '') if mother_items else ''
+        dc_po_number = dc_items[0].get('po_number', '') if dc_items else ''
+        mother_ship_window = mother_items[0].get('ship_window', 'TBD') if mother_items else 'TBD'
+        dc_ship_window = dc_items[0].get('ship_window', 'TBD') if dc_items else 'TBD'
+        
+        # Build Mother PO totals by SKU
+        mother_totals = {}
+        for item in mother_items:
+            sku = str(item.get('sku', '')).strip()
+            qty = int(item.get('po_qty', 0))
+            mother_totals[sku] = mother_totals.get(sku, 0) + qty
+        
+        # Build DC PO totals by SKU
+        dc_totals = {}
+        dc_breakdown = {}
+        for item in dc_items:
+            sku = str(item.get('sku', '')).strip()
+            dc_id = str(item.get('dc_id', '')).strip()
+            qty = int(item.get('po_qty', 0))
+            
+            dc_totals[sku] = dc_totals.get(sku, 0) + qty
+            
+            if sku not in dc_breakdown:
+                dc_breakdown[sku] = []
+            dc_breakdown[sku].append({'dc_id': dc_id, 'qty': qty})
+        
+        # Compare and find mismatches
+        mismatches = []
+        matching_count = 0
+        over_allocated = 0
+        under_allocated = 0
+        extra_skus = 0
+        
+        for sku, mother_qty in mother_totals.items():
+            dc_qty = dc_totals.get(sku, 0)
+            
+            if dc_qty != mother_qty:
+                status = 'over' if dc_qty > mother_qty else 'under'
+                if status == 'over':
+                    over_allocated += 1
+                else:
+                    under_allocated += 1
+                    
+                mismatches.append({
+                    'sku': sku,
+                    'mother_qty': mother_qty,
+                    'dc_total': dc_qty,
+                    'difference': dc_qty - mother_qty,
+                    'dc_breakdown': dc_breakdown.get(sku, []),
+                    'status': status
+                })
+            else:
+                matching_count += 1
+        
+        # Check for SKUs in DC PO but not in Mother PO
+        for sku in dc_totals:
+            if sku not in mother_totals:
+                extra_skus += 1
+                mismatches.append({
+                    'sku': sku,
+                    'mother_qty': 0,
+                    'dc_total': dc_totals[sku],
+                    'difference': dc_totals[sku],
+                    'dc_breakdown': dc_breakdown.get(sku, []),
+                    'status': 'extra'
+                })
+        
+        # Get all unique SKUs for inventory validation
+        all_skus = list(set(list(mother_totals.keys()) + list(dc_totals.keys())))
+        
+        # Fetch inventory data
+        inv_map = get_inventory_data(all_skus)
+        
+        # Convert to validator format
+        validator_inv_map = {}
+        validator_prod_map = {}
+        for sku, data in inv_map.items():
+            validator_inv_map[sku] = {
+                'total': data.get('total', 0),
+                'locations': data.get('locations', {'MAIN': 0, 'SUB': 0})
+            }
+            validator_prod_map[sku] = {
+                'KeyAccountPrice_TJX': data.get('price', 0.0)
+            }
+        
+        # Validate inventory for Mother PO items
+        validated_mother = validate_po_data(
+            mother_items,
+            inventory_map=validator_inv_map,
+            product_map=validator_prod_map,
+            safety_stock_value=resolve_safety_stock(None),
+            stock_mode="TOTAL"
+        )
+        
+        # Build inventory warnings
+        inventory_warnings = []
+        for item in validated_mother:
+            shortage = int(item.get('remaining_shortage', 0))
+            if shortage > 0:
+                inventory_warnings.append({
+                    'sku': item.get('sku'),
+                    'po_qty': int(item.get('po_qty', 0)),
+                    'available_stock': int(item.get('available_stock', 0)),
+                    'shortage': shortage,
+                    'status': item.get('inventory_status', 'OK')
+                })
+        
+        # Build validation result
+        validation_result = {
+            'is_valid': len(mismatches) == 0 and len(inventory_warnings) == 0,
+            'summary': {
+                'matching_skus': matching_count,
+                'mismatched_skus': len(mismatches),
+                'over_allocated': over_allocated,
+                'under_allocated': under_allocated,
+                'extra_skus': extra_skus,
+                'total_inventory_warnings': len(inventory_warnings)
+            },
+            'mismatches': mismatches,
+            'inventory_warnings': inventory_warnings,
+            'po_numbers': {
+                'mother_po': mother_po_number,
+                'dc_po': dc_po_number
+            },
+            'ship_windows': {
+                'mother_po': mother_ship_window,
+                'dc_po': dc_ship_window
+            }
+        }
+        
+        # Store review record
+        timestamp = datetime.now().isoformat()
+        review_record = {
+            'timestamp': timestamp,
+            'mother_po': mother_po_number,
+            'dc_po': dc_po_number,
+            'summary': validation_result['summary'],
+            'mismatch_count': len(mismatches),
+            'inventory_warning_count': len(inventory_warnings),
+            'result_files': []
+        }
+        
+        # Save review to outputs/po_reviews/
+        reviews_dir = os.path.join(settings.OUTPUT_DIR, "po_reviews")
+        os.makedirs(reviews_dir, exist_ok=True)
+        review_filename = f"{timestamp.replace(':', '-')}_{mother_po_number}_vs_{dc_po_number}.json"
+        review_path = os.path.join(reviews_dir, review_filename)
+        
+        with open(review_path, 'w', encoding='utf-8') as f:
+            json.dump(review_record, f, indent=2)
+        
+        return JSONResponse({
+            "status": "success",
+            "validation": validation_result
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error validating PO pair: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        # Clean up temp files
+        if mother_temp_path and os.path.exists(mother_temp_path):
+            try:
+                os.remove(mother_temp_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file {mother_temp_path}: {e}")
+        if dc_temp_path and os.path.exists(dc_temp_path):
+            try:
+                os.remove(dc_temp_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file {dc_temp_path}: {e}")
 
 
 @router.post("/analyze_po")
@@ -409,3 +621,47 @@ async def upload_temp_excel(file: UploadFile = File(...)):
         with open(path, "wb") as buffer: shutil.copyfileobj(file.file, buffer)
         return {"status": "success", "filename": file.filename}
     except Exception as e: raise HTTPException(500, str(e))
+
+
+@router.get("/po_reviews")
+async def get_po_reviews(limit: int = 10):
+    """
+    Get list of recent PO review records.
+    Returns reviews sorted by timestamp descending with optional limit.
+    """
+    try:
+        reviews_dir = os.path.join(settings.OUTPUT_DIR, "po_reviews")
+        
+        if not os.path.exists(reviews_dir):
+            return JSONResponse({
+                "status": "success",
+                "data": []
+            })
+        
+        # List all JSON files in reviews directory
+        review_files = []
+        for filename in os.listdir(reviews_dir):
+            if filename.endswith('.json'):
+                filepath = os.path.join(reviews_dir, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        review_data = json.load(f)
+                        review_files.append(review_data)
+                except Exception as e:
+                    logger.warning(f"Failed to read review file {filename}: {e}")
+                    continue
+        
+        # Sort by timestamp descending
+        review_files.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        # Apply limit
+        limited_reviews = review_files[:limit] if limit > 0 else review_files
+        
+        return JSONResponse({
+            "status": "success",
+            "data": limited_reviews
+        })
+        
+    except Exception as e:
+        logger.error(f"Error retrieving PO reviews: {e}")
+        raise HTTPException(500, str(e))

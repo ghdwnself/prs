@@ -259,3 +259,73 @@ async def get_reviewed_pos():
     except Exception as e:
         logger.error(f"Error loading reviewed POs: {e}")
         return {"status": "error", "message": str(e), "data": []}
+
+
+# --- 6. PDF Management ---
+
+@router.get("/uploaded_pdfs")
+async def get_uploaded_pdfs():
+    """
+    List all PDF files in temp directory with metadata.
+    Returns list of PDFs with name, size, and timestamp.
+    """
+    try:
+        temp_dir = settings.TEMP_DIR
+        
+        if not os.path.exists(temp_dir):
+            return {"status": "success", "data": []}
+        
+        pdf_files = []
+        for filename in os.listdir(temp_dir):
+            if filename.lower().endswith('.pdf'):
+                filepath = os.path.join(temp_dir, filename)
+                try:
+                    stat_info = os.stat(filepath)
+                    pdf_files.append({
+                        'filename': filename,
+                        'size': stat_info.st_size,
+                        'size_mb': round(stat_info.st_size / (1024 * 1024), 2),
+                        'modified': datetime.fromtimestamp(stat_info.st_mtime).isoformat()
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to stat file {filename}: {e}")
+                    continue
+        
+        # Sort by modified time descending
+        pdf_files.sort(key=lambda x: x['modified'], reverse=True)
+        
+        return {"status": "success", "data": pdf_files}
+        
+    except Exception as e:
+        logger.error(f"Error listing uploaded PDFs: {e}")
+        return {"status": "error", "message": str(e), "data": []}
+
+
+@router.delete("/uploaded_pdfs/{filename}")
+async def delete_uploaded_pdf(filename: str):
+    """
+    Delete a specific PDF file from temp directory.
+    """
+    try:
+        # Security: prevent directory traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            raise HTTPException(400, "Invalid filename")
+        
+        filepath = os.path.join(settings.TEMP_DIR, filename)
+        
+        if not os.path.exists(filepath):
+            raise HTTPException(404, "File not found")
+        
+        # Verify it's a PDF
+        if not filename.lower().endswith('.pdf'):
+            raise HTTPException(400, "Only PDF files can be deleted")
+        
+        os.remove(filepath)
+        
+        return {"status": "success", "message": f"File {filename} deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting PDF {filename}: {e}")
+        raise HTTPException(500, str(e))

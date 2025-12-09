@@ -142,7 +142,30 @@
                     </div>
                 </div>
 
-                <!-- 5. PO History -->
+                <!-- 5. Uploaded PDFs Management -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">📁 Uploaded PDFs Management</div>
+                        <button class="btn btn-secondary" onclick="loadUploadedPdfs()" style="font-size: 12px;">Refresh</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Filename</th>
+                                    <th>Size</th>
+                                    <th>Modified</th>
+                                    <th class="text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="uploadedPdfsBody">
+                                <tr><td colspan="4" class="text-center">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 6. PO History -->
                 <div class="card">
                     <div class="card-header">
                         <div class="card-title">📜 PO Processing History</div>
@@ -177,6 +200,7 @@
             checkHealth();
             loadSettings();
             loadReviewedPOs();
+            loadUploadedPdfs();
             loadHistory();
         });
 
@@ -340,6 +364,53 @@
                 });
                 loadHistory();
             } catch (e) { alert("Delete failed"); }
+        }
+
+        // --- 5. Uploaded PDFs Management ---
+        async function loadUploadedPdfs() {
+            const tbody = document.getElementById('uploadedPdfsBody');
+            try {
+                const res = await fetch('/api/admin/uploaded_pdfs');
+                const json = await res.json();
+                
+                tbody.innerHTML = '';
+                if (json.status === 'error' || !json.data || json.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center">No PDF files found.</td></tr>';
+                    return;
+                }
+                
+                json.data.forEach(pdf => {
+                    const modified = new Date(pdf.modified).toLocaleString();
+                    
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><strong>${pdf.filename}</strong></td>
+                        <td>${pdf.size_mb} MB</td>
+                        <td>${modified}</td>
+                        <td class="text-right">
+                            <button class="btn btn-secondary" style="padding:2px 6px; font-size:11px; color:red; border-color:#fca5a5;" 
+                                onclick="deletePdf('${pdf.filename}')">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center">Error loading PDFs.</td></tr>';
+            }
+        }
+        
+        async function deletePdf(filename) {
+            if (!confirm(`Delete ${filename}?`)) return;
+            try {
+                const res = await fetch(`/api/admin/uploaded_pdfs/${encodeURIComponent(filename)}`, {
+                    method: 'DELETE'
+                });
+                const json = await res.json();
+                alert(json.message);
+                loadUploadedPdfs();
+            } catch (e) {
+                alert("Delete failed: " + e.message);
+            }
         }
 
         // --- Common ---
