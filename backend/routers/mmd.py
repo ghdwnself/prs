@@ -273,6 +273,15 @@ async def analyze_po(
             'out_of_stock_count': validation_summary['out_of_stock_count'],
             'dcs': {}
         }
+
+        def _get_stock_value(data: Dict[str, Any], primary_key: str, secondary_key: str) -> int:
+            value = data.get(primary_key, None)
+            if value is None:
+                value = data.get(secondary_key, 0)
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
         
         for item in validated_items:
             sku = str(item.get('sku', '')).strip()
@@ -289,9 +298,9 @@ async def analyze_po(
             total_price = po_qty * price
             
             # Get inventory details
-            main_stock = int(item.get('available_main_stock', item.get('main_stock', 0)))
-            sub_stock = int(item.get('available_sub_stock', item.get('sub_stock', 0)))
-            total_stock = int(item.get('available_total_stock', item.get('total_stock', 0)))
+            main_stock = _get_stock_value(item, 'available_main_stock', 'main_stock')
+            sub_stock = _get_stock_value(item, 'available_sub_stock', 'sub_stock')
+            total_stock = _get_stock_value(item, 'available_total_stock', 'total_stock')
             remaining_shortage = int(item.get('remaining_shortage', item.get('shortage', 0)))
             
             analysis_result.append({

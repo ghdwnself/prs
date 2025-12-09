@@ -97,6 +97,10 @@ def validate_po_data(
         else:
             inventory_status = STATUS_OUT_OF_STOCK
 
+        transfer_from_sub = 0
+        if item_stock_mode == "MAIN" and shortage > 0 and available_sub > 0:
+            transfer_from_sub = min(available_sub, shortage)
+
         # Price check (Mother PO prioritised, but applied when both values exist)
         status_label = STATUS_OK
         price_warning = ""
@@ -126,7 +130,7 @@ def validate_po_data(
             'available_stock': available_stock,
             'required_qty': required_qty,
             'shortage': shortage,
-            'transfer_from_sub': 0,
+            'transfer_from_sub': transfer_from_sub,
             'remaining_shortage': shortage,
             'system_cost': system_cost,
             'price_warning': price_warning,
