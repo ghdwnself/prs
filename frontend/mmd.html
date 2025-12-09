@@ -234,22 +234,49 @@
                 const dcItems = rawAnalysisData.filter(i => i['DC #'] === dc);
                 
                 let tableHtml = `
-                    <div style="padding: 10px; background: #fff; border: 1px solid var(--border-color); border-top: none; border-radius: 0 0 8px 8px;">
+                    <div style="padding: 10px; background: #fff; border: 1px solid var(--border-color); border-top: none; border-radius: 0 0 8px 8px; overflow-x: auto;">
                     <table class="detail-table">
-                        <thead><tr><th>SKU</th><th>Desc</th><th class="text-right">Order</th><th class="text-right">Stock</th><th class="text-right">Short</th><th class="text-right">Price</th></tr></thead>
+                        <thead><tr><th>Status</th><th>SKU</th><th>Desc</th><th class="text-right">PO Qty</th><th class="text-right">Main Inv</th><th class="text-right">Sub Inv</th><th class="text-right">Price</th><th>Message</th></tr></thead>
                         <tbody>
                 `;
                 
                 dcItems.forEach(item => {
-                    const isShort = item['Shortage'] > 0;
+                    // Get status and normalize it
+                    const rawStatus = item['status'] || item['validation_status'] || 'Unknown';
+                    const normalizedStatus = normalizeStatus(rawStatus);
+                    const statusClass = `status-${normalizedStatus}`;
+                    
+                    // Determine row class based on status
+                    let rowClass = '';
+                    if (normalizedStatus === 'critical') rowClass = 'row-critical';
+                    else if (normalizedStatus === 'warning') rowClass = 'row-warning';
+                    
+                    // Get inventory values (try multiple possible field names for compatibility)
+                    const mainInv = item['main_stock'] || item['main_inv'] || 0;
+                    const subInv = item['sub_stock'] || item['sub_inv'] || 0;
+                    
+                    // Get message/issues
+                    const message = item['issues'] || item['price_warning'] || '';
+                    const messageClass = normalizedStatus === 'critical' ? 'message-critical' : '';
+                    
+                    // Get other fields (try multiple possible field names)
+                    const sku = item['SKU'] || item['sku'] || '';
+                    const fullDesc = item['Description'] || item['product_name'] || '';
+                    const desc = fullDesc.substring(0, 20);
+                    const needsEllipsis = fullDesc.length > 20;
+                    const poQty = item['PO Qty (Units)'] || item['po_qty'] || item['qty'] || 0;
+                    const price = item['Price'] || item['unit_cost'] || 0;
+                    
                     tableHtml += `
-                        <tr class="${isShort ? 'row-shortage' : ''}">
-                            <td>${item['SKU']}</td>
-                            <td>${item['Description'].substring(0, 20)}...</td>
-                            <td class="text-right">${item['PO Qty (Units)']}</td>
-                            <td class="text-right">${item['Current Stock']}</td>
-                            <td class="text-right">${item['Shortage']}</td>
-                            <td class="text-right">${formatCurrency(item['Price'])}</td>
+                        <tr class="${rowClass}">
+                            <td><span class="${statusClass}">${getStatusDisplay(rawStatus)}</span></td>
+                            <td>${sku}</td>
+                            <td>${desc}${needsEllipsis ? '...' : ''}</td>
+                            <td class="text-right">${poQty}</td>
+                            <td class="text-right">${mainInv}</td>
+                            <td class="text-right">${subInv}</td>
+                            <td class="text-right">${formatCurrency(price)}</td>
+                            <td class="${messageClass}">${message}</td>
                         </tr>
                     `;
                 });

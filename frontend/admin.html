@@ -193,7 +193,21 @@
                 document.getElementById('resSource').textContent = d.source;
                 document.getElementById('resDesc').textContent = d.desc;
                 document.getElementById('resPrice').textContent = `$${d.price}`;
-                document.getElementById('resStock').textContent = d.stock;
+                
+                // New: Display Main/Sub/Total inventory split
+                let stockDisplay = '';
+                if (typeof d.stock_main !== 'undefined' && typeof d.stock_sub !== 'undefined') {
+                    // New format with main/sub split
+                    const total = d.stock_main + d.stock_sub;
+                    stockDisplay = `Main: ${d.stock_main}, Sub: ${d.stock_sub}, Total: ${total}`;
+                } else if (typeof d.stock !== 'undefined') {
+                    // Backward compatible: single stock value
+                    stockDisplay = `Stock: ${d.stock}`;
+                } else {
+                    stockDisplay = 'No inventory data';
+                }
+                document.getElementById('resStock').textContent = stockDisplay;
+                
                 document.getElementById('resPack').textContent = d.pack;
                 document.getElementById('resDim').textContent = `${d.weight}lb / ${d.height}"`;
                 
