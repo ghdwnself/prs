@@ -78,6 +78,9 @@
   - Logging for invalid data warnings
   - Defaults to 0 for non-numeric values
 
+#### CI/CD
+- Removed GitHub Actions workflows and related scripts (deferred for future use)
+
 #### CSS
 - **New Style Classes**: Added comprehensive visual indicator styles
   - `.price-match`, `.price-mismatch` for price validation
