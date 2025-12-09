@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Status constants
 STATUS_OK = "OK"
-STATUS_MAIN_SHORT = "⚠️ Inventory Low"
+STATUS_INVENTORY_LOW = "⚠️ Inventory Low"
 STATUS_OUT_OF_STOCK = "🚨 Out of Stock"
 STATUS_PRICE_MISMATCH = "가격 불일치"
 STATUS_PRODUCT_MISSING = "제품 미등록"
@@ -93,13 +93,14 @@ def validate_po_data(
         if shortage == 0:
             inventory_status = STATUS_OK
         elif available_stock > 0:
-            inventory_status = STATUS_MAIN_SHORT
+            inventory_status = STATUS_INVENTORY_LOW
         else:
             inventory_status = STATUS_OUT_OF_STOCK
 
         transfer_from_sub = 0
         if item_stock_mode == "MAIN" and shortage > 0 and available_sub > 0:
             transfer_from_sub = min(available_sub, shortage)
+        remaining_shortage = max(0, shortage - transfer_from_sub)
 
         # Price check (Mother PO prioritised, but applied when both values exist)
         status_label = STATUS_OK
@@ -129,9 +130,9 @@ def validate_po_data(
             'available_total_stock': available_total,
             'available_stock': available_stock,
             'required_qty': required_qty,
-            'shortage': shortage,
+            'shortage': remaining_shortage,
             'transfer_from_sub': transfer_from_sub,
-            'remaining_shortage': shortage,
+            'remaining_shortage': remaining_shortage,
             'system_cost': system_cost,
             'price_warning': price_warning,
             'stock_mode': item_stock_mode,
@@ -172,13 +173,13 @@ def get_validation_summary(validated_items: List[Dict[str, Any]]) -> Dict[str, A
         po_qty = int(item.get('po_qty', 0))
         dc_id = item.get('dc_id', 'N/A')
 
-        shortage_val = int(item.get('remaining_shortage', item.get('shortage', 0)))
+        shortage_val = int(item.get('remaining_shortage', 0))
         available_stock = int(item.get('available_stock', 0))
 
         # Count by status
         if shortage_val == 0 and status == STATUS_OK:
             summary['ok_count'] += 1
-        elif status == STATUS_MAIN_SHORT or (shortage_val > 0 and available_stock > 0):
+        elif status == STATUS_INVENTORY_LOW or (shortage_val > 0 and available_stock > 0):
             summary['main_short_count'] += 1
         elif shortage_val > 0 or status == STATUS_OUT_OF_STOCK:
             summary['out_of_stock_count'] += 1

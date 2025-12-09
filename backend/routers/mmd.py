@@ -5,7 +5,7 @@ import shutil
 import math
 import logging
 import pandas as pd
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 # Config & Services
 from core.config import settings
@@ -193,7 +193,7 @@ async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
 async def analyze_po(
     file: UploadFile = File(...),
     stock_mode: str = "TOTAL",
-    safety_stock_value: int = None
+    safety_stock_value: Optional[int] = None
 ):
     """
     Analyze PO PDF file using new dynamic parser and validator.
@@ -274,12 +274,10 @@ async def analyze_po(
             'dcs': {}
         }
 
-        def _get_stock_value(data: Dict[str, Any], primary_key: str, secondary_key: str) -> int:
+        def _get_stock_value(data: Dict[str, Any], primary_key: str) -> int:
             value = data.get(primary_key, None)
-            if value is None:
-                value = data.get(secondary_key, 0)
             try:
-                return int(value)
+                return int(value) if value is not None else 0
             except (TypeError, ValueError):
                 return 0
         
@@ -298,10 +296,10 @@ async def analyze_po(
             total_price = po_qty * price
             
             # Get inventory details
-            main_stock = _get_stock_value(item, 'available_main_stock', 'main_stock')
-            sub_stock = _get_stock_value(item, 'available_sub_stock', 'sub_stock')
-            total_stock = _get_stock_value(item, 'available_total_stock', 'total_stock')
-            remaining_shortage = int(item.get('remaining_shortage', item.get('shortage', 0)))
+            main_stock = _get_stock_value(item, 'available_main_stock')
+            sub_stock = _get_stock_value(item, 'available_sub_stock')
+            total_stock = _get_stock_value(item, 'available_total_stock')
+            remaining_shortage = int(item.get('remaining_shortage', 0))
             
             analysis_result.append({
                 'DC #': dc_id,

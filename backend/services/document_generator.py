@@ -80,6 +80,12 @@ class DocumentGenerator:
             DC_ID, Child_PO, SKU, Customer_Qty_Cases, Modified_Qty_Cases,
             Current_Stock_MAIN, Current_Stock_SUB, Status_Label, Memo_Action
         """
+        def _safe_int(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+
         rows = []
         for item in validated_items:
             po_qty = int(item.get('po_qty', 0))
@@ -94,8 +100,8 @@ class DocumentGenerator:
                 "SKU": str(item.get('sku', '')),
                 "Customer_Qty_Cases": case_qty,
                 "Modified_Qty_Cases": "",
-                "Current_Stock_MAIN": int(item.get('available_main_stock', item.get('main_stock', 0))),
-                "Current_Stock_SUB": int(item.get('available_sub_stock', item.get('sub_stock', 0))),
+                "Current_Stock_MAIN": _safe_int(item.get('available_main_stock')),
+                "Current_Stock_SUB": _safe_int(item.get('available_sub_stock')),
                 "Status_Label": item.get('status_label', item.get('status', '')),
                 "Memo_Action": item.get('memo_action', ''),
             })
