@@ -236,13 +236,13 @@
                 let tableHtml = `
                     <div style="padding: 10px; background: #fff; border: 1px solid var(--border-color); border-top: none; border-radius: 0 0 8px 8px; overflow-x: auto;">
                     <table class="detail-table">
-                        <thead><tr><th>Status</th><th>SKU</th><th>Desc</th><th class="text-right">PO Qty</th><th class="text-right">Main Inv</th><th class="text-right">Sub Inv</th><th class="text-right">Price</th><th>Message</th></tr></thead>
+                        <thead><tr><th>Status</th><th>SKU</th><th>Desc</th><th class="text-right">PO Qty</th><th>Inventory</th><th class="text-right">Price</th><th>Price Status</th><th>Message</th></tr></thead>
                         <tbody>
                 `;
                 
                 dcItems.forEach(item => {
                     // Get status and normalize it
-                    const rawStatus = item['status'] || item['validation_status'] || 'Unknown';
+                    const rawStatus = item['Status'] || item['status'] || item['validation_status'] || 'Unknown';
                     const normalizedStatus = normalizeStatus(rawStatus);
                     const statusClass = `status-${normalizedStatus}`;
                     
@@ -252,11 +252,36 @@
                     else if (normalizedStatus === 'warning') rowClass = 'row-warning';
                     
                     // Get inventory values (try multiple possible field names for compatibility)
-                    const mainInv = item['main_stock'] || item['main_inv'] || 0;
-                    const subInv = item['sub_stock'] || item['sub_inv'] || 0;
+                    const mainInv = item['Main Stock'] || item['main_stock'] || item['main_inv'] || 0;
+                    const subInv = item['Sub Stock'] || item['sub_stock'] || item['sub_inv'] || 0;
+                    const totalInv = item['Total Stock'] || item['total_stock'] || (mainInv + subInv);
+                    
+                    // Determine stock status class based on inventory levels
+                    let stockStatusClass = 'stock-adequate';
+                    const poQty = item['PO Qty (Units)'] || item['po_qty'] || item['qty'] || 0;
+                    const shortage = item['Shortage'] || item['remaining_shortage'] || 0;
+                    
+                    if (shortage > 0 || totalInv < poQty) {
+                        stockStatusClass = 'stock-out';
+                    } else if (normalizedStatus === 'warning') {
+                        stockStatusClass = 'stock-low';
+                    }
+                    
+                    // Get price information
+                    const poPrice = item['PO Price'] || item['unit_cost'] || 0;
+                    const systemPrice = item['system_cost'] || poPrice;
+                    const priceWarning = item['Price Warning'] || item['price_warning'] || '';
+                    
+                    // Determine price match status
+                    let priceStatusClass = 'price-match';
+                    let priceStatusText = 'Match';
+                    if (priceWarning) {
+                        priceStatusClass = 'price-mismatch';
+                        priceStatusText = 'Mismatch';
+                    }
                     
                     // Get message/issues
-                    const message = item['issues'] || item['price_warning'] || '';
+                    const message = item['issues'] || priceWarning || '';
                     const messageClass = normalizedStatus === 'critical' ? 'message-critical' : '';
                     
                     // Get other fields (try multiple possible field names)
@@ -264,18 +289,34 @@
                     const fullDesc = item['Description'] || item['product_name'] || '';
                     const desc = fullDesc.substring(0, 20);
                     const needsEllipsis = fullDesc.length > 20;
-                    const poQty = item['PO Qty (Units)'] || item['po_qty'] || item['qty'] || 0;
-                    const price = item['Price'] || item['unit_cost'] || 0;
+                    
+                    // Build inventory display HTML
+                    const inventoryHtml = `
+                        <div class="inventory-display">
+                            <div class="inventory-row">
+                                <span class="inventory-label">Main:</span>
+                                <span class="inventory-value inventory-main">${mainInv}</span>
+                            </div>
+                            <div class="inventory-row">
+                                <span class="inventory-label">Sub:</span>
+                                <span class="inventory-value inventory-sub">${subInv}</span>
+                            </div>
+                            <div class="inventory-row inventory-total">
+                                <span class="inventory-label">Total:</span>
+                                <span class="inventory-value">${totalInv}</span>
+                            </div>
+                        </div>
+                    `;
                     
                     tableHtml += `
                         <tr class="${rowClass}">
-                            <td><span class="${statusClass}">${getStatusDisplay(rawStatus)}</span></td>
+                            <td><span class="${statusClass} ${stockStatusClass}">${getStatusDisplay(rawStatus)}</span></td>
                             <td>${sku}</td>
                             <td>${desc}${needsEllipsis ? '...' : ''}</td>
                             <td class="text-right">${poQty}</td>
-                            <td class="text-right">${mainInv}</td>
-                            <td class="text-right">${subInv}</td>
-                            <td class="text-right">${formatCurrency(price)}</td>
+                            <td>${inventoryHtml}</td>
+                            <td class="text-right">${formatCurrency(poPrice)}</td>
+                            <td><span class="${priceStatusClass}">${priceStatusText}</span></td>
                             <td class="${messageClass}">${message}</td>
                         </tr>
                     `;

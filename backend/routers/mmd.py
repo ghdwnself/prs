@@ -103,6 +103,85 @@ def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:
 
 # --- API Endpoints ---
 
+@router.post("/validate_dc_allocation")
+async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
+    """
+    Validate DC PO allocations against Mother PO requirements.
+    Checks that sum of DC allocations matches Mother PO's SKU-level total.
+    """
+    try:
+        mother_po_items = payload.get('mother_po_items', [])
+        dc_po_items = payload.get('dc_po_items', [])
+        
+        # Build Mother PO totals by SKU
+        mother_totals = {}
+        for item in mother_po_items:
+            sku = str(item.get('sku', '')).strip()
+            qty = int(item.get('po_qty', 0))
+            mother_totals[sku] = mother_totals.get(sku, 0) + qty
+        
+        # Build DC PO totals by SKU
+        dc_totals = {}
+        dc_breakdown = {}  # Track which DCs have which SKUs
+        for item in dc_po_items:
+            sku = str(item.get('sku', '')).strip()
+            dc_id = str(item.get('dc_id', '')).strip()
+            qty = int(item.get('po_qty', 0))
+            
+            dc_totals[sku] = dc_totals.get(sku, 0) + qty
+            
+            if sku not in dc_breakdown:
+                dc_breakdown[sku] = []
+            dc_breakdown[sku].append({'dc_id': dc_id, 'qty': qty})
+        
+        # Compare and find mismatches
+        mismatches = []
+        for sku, mother_qty in mother_totals.items():
+            dc_qty = dc_totals.get(sku, 0)
+            
+            if dc_qty != mother_qty:
+                mismatches.append({
+                    'sku': sku,
+                    'mother_qty': mother_qty,
+                    'dc_total': dc_qty,
+                    'difference': dc_qty - mother_qty,
+                    'dc_breakdown': dc_breakdown.get(sku, []),
+                    'status': 'over' if dc_qty > mother_qty else 'under'
+                })
+        
+        # Check for SKUs in DC PO but not in Mother PO
+        for sku in dc_totals:
+            if sku not in mother_totals:
+                mismatches.append({
+                    'sku': sku,
+                    'mother_qty': 0,
+                    'dc_total': dc_totals[sku],
+                    'difference': dc_totals[sku],
+                    'dc_breakdown': dc_breakdown.get(sku, []),
+                    'status': 'extra'
+                })
+        
+        validation_result = {
+            'is_valid': len(mismatches) == 0,
+            'total_skus_mother': len(mother_totals),
+            'total_skus_dc': len(dc_totals),
+            'mismatches': mismatches,
+            'summary': {
+                'matching_skus': len(mother_totals) - len(mismatches),
+                'mismatched_skus': len(mismatches)
+            }
+        }
+        
+        return JSONResponse({
+            "status": "success",
+            "validation": validation_result
+        })
+        
+    except Exception as e:
+        logger.error(f"Error validating DC allocation: {e}")
+        raise HTTPException(500, str(e))
+
+
 @router.post("/analyze_po")
 async def analyze_po(file: UploadFile = File(...)):
     """

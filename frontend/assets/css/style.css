@@ -398,6 +398,103 @@ tr.row-warning {
     background-color: #fffbeb !important;
 }
 
+/* Price Match Status Indicators */
+.price-match {
+    color: #10b981;
+    font-weight: 600;
+}
+
+.price-match::before {
+    content: '✓ ';
+    font-weight: 700;
+}
+
+.price-mismatch {
+    color: #ef4444;
+    font-weight: 600;
+}
+
+.price-mismatch::before {
+    content: '✗ ';
+    font-weight: 700;
+}
+
+/* Inventory Status Indicators */
+.stock-adequate {
+    background-color: #d1fae5;
+    color: #065f46;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.stock-adequate::before {
+    content: '✓ ';
+}
+
+.stock-low {
+    background-color: #fef3c7;
+    color: #92400e;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.stock-low::before {
+    content: '⚠ ';
+}
+
+.stock-out {
+    background-color: #fee2e2;
+    color: #991b1b;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 700;
+}
+
+.stock-out::before {
+    content: '🚨 ';
+}
+
+/* Inventory Display - MAIN/SUB/TOTAL */
+.inventory-display {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.85rem;
+}
+
+.inventory-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.inventory-label {
+    font-weight: 600;
+    margin-right: 8px;
+    color: #64748b;
+}
+
+.inventory-value {
+    font-weight: 600;
+}
+
+.inventory-main {
+    color: #2563eb;
+}
+
+.inventory-sub {
+    color: #7c3aed;
+}
+
+.inventory-total {
+    color: #0f172a;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 2px;
+    margin-top: 2px;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .table-responsive {

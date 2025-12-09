@@ -112,7 +112,35 @@
                     </div>
                 </div>
 
-                <!-- 4. PO History -->
+                <!-- 4. Re-Reviewed PO Dashboard -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">📋 Re-Reviewed PO Dashboard</div>
+                        <button class="btn btn-secondary" onclick="loadReviewedPOs()" style="font-size: 12px;">Refresh</button>
+                    </div>
+                    <div id="reviewedPOsContent">
+                        <div class="table-responsive">
+                            <table class="history-table">
+                                <thead>
+                                    <tr>
+                                        <th>PO Number</th>
+                                        <th>Buyer Name</th>
+                                        <th>Review Date</th>
+                                        <th>Total SKUs</th>
+                                        <th>Total Units</th>
+                                        <th>Status</th>
+                                        <th class="text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="reviewedPOsBody">
+                                    <tr><td colspan="7" class="text-center">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. PO History -->
                 <div class="card">
                     <div class="card-header">
                         <div class="card-title">📜 PO Processing History</div>
@@ -146,6 +174,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             checkHealth();
             loadSettings();
+            loadReviewedPOs();
             loadHistory();
         });
 
@@ -215,7 +244,49 @@
             } catch (e) { alert("Error checking SKU"); }
         }
 
-        // --- 3. History ---
+        // --- 3. Re-Reviewed PO Dashboard ---
+        async function loadReviewedPOs() {
+            const tbody = document.getElementById('reviewedPOsBody');
+            try {
+                const res = await fetch('/api/admin/reviewed_pos');
+                const json = await res.json();
+                
+                tbody.innerHTML = '';
+                if (json.status === 'error' || !json.data || json.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center">No reviewed POs found.</td></tr>';
+                    return;
+                }
+
+                json.data.forEach(po => {
+                    const reviewDate = new Date(po.review_date).toLocaleDateString();
+                    const statusBadge = po.status === 'Approved' ? 'badge-mmd' : 'badge-emd';
+                    
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><strong>${po.po_number}</strong></td>
+                        <td>${po.buyer_name || 'N/A'}</td>
+                        <td>${reviewDate}</td>
+                        <td class="text-right">${po.total_skus || 0}</td>
+                        <td class="text-right">${(po.total_units || 0).toLocaleString()}</td>
+                        <td><span class="${statusBadge}">${po.status}</span></td>
+                        <td class="text-right">
+                            <button class="btn btn-secondary" style="padding:2px 6px; font-size:11px;" 
+                                onclick="viewPODetails('${po.po_number}')">View</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (e) { 
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center">Error loading reviewed POs.</td></tr>'; 
+            }
+        }
+
+        async function viewPODetails(poNumber) {
+            alert('PO Details for: ' + poNumber + '\n\nThis feature shows detailed SKU breakdown, shipping forecast, and DC allocations.');
+            // TODO: Implement detailed view modal
+        }
+
+        // --- 4. History ---
         async function loadHistory() {
             const tbody = document.getElementById('historyTableBody');
             try {

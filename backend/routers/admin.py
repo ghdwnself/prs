@@ -202,3 +202,59 @@ async def sync_products():
 @router.post("/sync/inventory")
 async def sync_inventory():
     return await data_loader.sync_inventory()
+
+
+# --- 5. Re-Reviewed PO Dashboard ---
+
+@router.get("/reviewed_pos")
+async def get_reviewed_pos():
+    """
+    Get list of reviewed POs with summary information.
+    This queries the history directory for POs that have been processed and reviewed.
+    """
+    try:
+        pattern = os.path.join(HISTORY_DIR, "**", "*.json")
+        files = glob.glob(pattern, recursive=True)
+        
+        reviewed_list = []
+        for fpath in files:
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    meta = data.get('meta', {})
+                    result_data = data.get('data', {})
+                    
+                    # Extract PO information
+                    po_number = meta.get('po_number', 'Unknown')
+                    buyer_name = meta.get('buyer_name', meta.get('customer', 'Unknown'))
+                    review_date = meta.get('timestamp', '')
+                    
+                    # Extract summary stats from result data
+                    summary = result_data.get('summary', {})
+                    total_skus = summary.get('total_skus', 0)
+                    total_units = summary.get('total_units', 0)
+                    
+                    # Determine status based on shortage count
+                    shortage_count = summary.get('shortage_skus_count', 0)
+                    status = 'Approved' if shortage_count == 0 else 'Pending Review'
+                    
+                    reviewed_list.append({
+                        'po_number': po_number,
+                        'buyer_name': buyer_name,
+                        'review_date': review_date,
+                        'total_skus': total_skus,
+                        'total_units': total_units,
+                        'status': status,
+                        'file_path': fpath
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to parse reviewed PO file {fpath}: {e}")
+                continue
+        
+        # Sort by review date (most recent first)
+        reviewed_list.sort(key=lambda x: x['review_date'], reverse=True)
+        
+        return {"status": "success", "data": reviewed_list}
+    except Exception as e:
+        logger.error(f"Error loading reviewed POs: {e}")
+        return {"status": "error", "message": str(e), "data": []}
