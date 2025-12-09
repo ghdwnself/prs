@@ -52,6 +52,11 @@ jobs:
           echo "data folder contents:"
           ls -la data || true
 
+      - name: Ensure screenshot script exists
+        run: |
+          echo "Listing actions script folder:"
+          ls -la .github/actions-scripts || true
+
       - name: Run screenshot script
         run: |
           python .github/actions-scripts/screenshot_po.py
