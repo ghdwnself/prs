@@ -2,7 +2,7 @@
 
 **작성일:** 2024-12-02  
 **작성자:** 수석 AI 엔지니어  
-**버전:** v3.5.0
+**버전:** v2.0.0
 
 ---
 
@@ -41,11 +41,10 @@
 │       └── 📄 po_parser.py      ✅ PDF PO 파싱 서비스
 │
 ├── 📂 frontend/                 ✅ HTML/JS 프론트엔드
-│   ├── 📄 index.html            ✅ 메인 페이지
+│   ├── 📄 index.html            ✅ 메인(PO Validation) 페이지
 │   ├── 📄 admin.html            ✅ 관리자 페이지
 │   ├── 📄 customer.html         ✅ 고객 포털
 │   ├── 📄 emd.html              ✅ EMD 페이지
-│   ├── 📄 mmd.html              ✅ MMD 페이지
 │   └── 📂 assets/               ✅ 정적 자산
 │
 ├── 📂 data/                     ✅ 데이터 파일 디렉토리

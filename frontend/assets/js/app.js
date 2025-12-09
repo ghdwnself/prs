@@ -15,7 +15,7 @@ function initSidebar() {
 
     navLinks.forEach(link => {
         const href = link.getAttribute('href');
-        // Simple check: if URL contains the href (e.g., 'mmd.html')
+        // Simple check: if URL contains the href (e.g., 'emd.html')
         if (currentPath.includes(href) || (currentPath === '/' && href === 'index.html')) {
             link.classList.add('active');
         } else {
