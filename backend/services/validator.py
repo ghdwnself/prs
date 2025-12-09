@@ -26,7 +26,7 @@ def resolve_safety_stock(safety_stock_value: Optional[int] = None) -> int:
         return max(0, int(safety_stock_value))
     except (TypeError, ValueError):
         logger.warning("Invalid safety_stock_value provided. Falling back to 0.")
-        return getattr(settings, "SAFETY_STOCK", 0) or 0
+        return getattr(settings, "SAFETY_STOCK", 0)
 
 
 def validate_po_data(
@@ -89,7 +89,7 @@ def validate_po_data(
         prod_data = product_map.get(sku, {})
         system_cost = float(prod_data.get('KeyAccountPrice_TJX', 0.0) or 0.0)
 
-        # Safety stock is applied to available stock (not added to required quantity)
+        # Safety stock is reserved by reducing available stock; required quantity stays as PO qty.
         required_qty = po_qty
         shortage = max(0, required_qty - available_stock)
 

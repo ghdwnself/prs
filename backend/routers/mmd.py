@@ -15,6 +15,7 @@ from services.palletizer import Palletizer
 from services.document_generator import DocumentGenerator
 from services.firebase_service import firebase_manager
 from services.data_loader import data_loader
+from services.utils import safe_int
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -31,14 +32,8 @@ if os.path.exists(division_path):
     except Exception as e:
         logger.error(f"Failed to load DC lookup CSV: {e}")
 
-def _safe_int(value) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
 def _get_stock_value(data: Dict[str, Any], primary_key: str) -> int:
-    return _safe_int(data.get(primary_key))
+    return safe_int(data.get(primary_key))
 
 # --- Helper Functions ---
 def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:

@@ -2,12 +2,7 @@ import math
 import pandas as pd
 import os
 from datetime import datetime
-
-def _safe_int(value):
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
+from services.utils import safe_int
 
 class DocumentGenerator:
     def __init__(self, output_dir):
@@ -88,12 +83,12 @@ class DocumentGenerator:
         """
         rows = []
         for item in validated_items:
-            po_qty = int(item.get('po_qty', 0))
-            pack_size = int(item.get('pack_size', 1))
+            po_qty = safe_int(item.get('po_qty', 0))
+            pack_size = safe_int(item.get('pack_size', 1), default=1)
             if pack_size < 1:
                 pack_size = 1
             default_case_qty = math.ceil(po_qty / pack_size)
-            case_qty = int(item.get('case_qty', default_case_qty))
+            case_qty = safe_int(item.get('case_qty', default_case_qty), default_case_qty)
 
             rows.append({
                 "DC_ID": str(item.get('dc_id', '')),
@@ -101,8 +96,8 @@ class DocumentGenerator:
                 "SKU": str(item.get('sku', '')),
                 "Customer_Qty_Cases": case_qty,
                 "Modified_Qty_Cases": "",
-                "Current_Stock_MAIN": _safe_int(item.get('available_main_stock')),
-                "Current_Stock_SUB": _safe_int(item.get('available_sub_stock')),
+                "Current_Stock_MAIN": safe_int(item.get('available_main_stock')),
+                "Current_Stock_SUB": safe_int(item.get('available_sub_stock')),
                 "Status_Label": item.get('status_label', item.get('status', '')),
                 "Memo_Action": item.get('memo_action', ''),
             })
