@@ -166,6 +166,7 @@ DATA_DIR=data
 - 업로드한 Mother PO와 DC PO를 비교하여 수량 일치 여부 검증
 - 재고 검증 및 요약 리포트 제공
 - 불일치 항목 CSV 추출 및 Order Import 생성 준비
+- `/api/validate_po_pair` 응답에는 기존 필드(mismatches, summary 등) 외에도 `sku_details`(모든 SKU의 단가/수량/카톤/재고/상태/할당 내역), `totals`(Mother/DC 총 수량·카톤·금액), `by_dc_totals`(DC별 합계), `summary.amount_mismatch_count`(금액 불일치 카운트) 등이 포함됩니다.
 
 #### 2. **EMD (E-commerce Market Distribution)**
 - Similar to MMD with e-commerce specific logic

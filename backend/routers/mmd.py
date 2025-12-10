@@ -354,6 +354,114 @@ async def validate_po_pair(
                     'shortage': shortage,
                     'status': item.get('inventory_status', 'OK')
                 })
+
+        shortage_map: Dict[str, int] = {}
+        for item in validated_mother:
+            sku_key = str(item.get('sku', '')).strip()
+            shortage_map[sku_key] = shortage_map.get(sku_key, 0) + int(item.get('remaining_shortage', 0))
+
+        sku_details: List[Dict[str, Any]] = []
+        by_dc_totals_map: Dict[str, Dict[str, Any]] = {}
+        totals = {
+            'total_skus': len(all_skus),
+            'total_units_mother': 0,
+            'total_units_dc': 0,
+            'total_cartons_mother': 0,
+            'total_cartons_dc': 0,
+            'total_amount_mother': 0.0,
+            'total_amount_dc': 0.0
+        }
+        amount_mismatch_count = 0
+
+        for sku in all_skus:
+            mother_qty = int(mother_totals.get(sku, 0))
+            dc_qty = int(dc_totals.get(sku, 0))
+            inv = inv_map.get(sku, {})
+            pack_size = max(int(inv.get('pack_size', 1) or 1), 1)
+            unit_price = float(inv.get('price', 0.0) or 0.0)
+
+            mother_cartons = math.ceil(mother_qty / pack_size) if mother_qty > 0 else 0
+            dc_cartons = math.ceil(dc_qty / pack_size) if dc_qty > 0 else 0
+
+            mother_amount = mother_qty * unit_price
+            dc_amount = dc_qty * unit_price
+            amount_differs = abs(mother_amount - dc_amount) > 0.01
+            if amount_differs:
+                amount_mismatch_count += 1
+
+            difference = dc_qty - mother_qty
+            if mother_qty == 0 and dc_qty > 0:
+                status = 'extra'
+            elif dc_qty > mother_qty:
+                status = 'over'
+            elif dc_qty < mother_qty:
+                status = 'under'
+            else:
+                status = 'ok'
+
+            breakdown_list = []
+            for dc_entry in dc_breakdown.get(sku, []):
+                dc_id_val = str(dc_entry.get('dc_id', '')).strip()
+                dc_qty_val = int(dc_entry.get('qty', 0))
+                cartons_val = math.ceil(dc_qty_val / pack_size) if dc_qty_val > 0 else 0
+                amount_val = dc_qty_val * unit_price
+                breakdown_list.append({
+                    'dc_id': dc_id_val,
+                    'qty': dc_qty_val,
+                    'cartons': cartons_val,
+                    'amount': amount_val
+                })
+
+                if dc_id_val not in by_dc_totals_map:
+                    by_dc_totals_map[dc_id_val] = {
+                        'dc_id': dc_id_val,
+                        'units': 0,
+                        'cartons': 0,
+                        'amount': 0.0,
+                        'skus': set()
+                    }
+                dc_totals_obj = by_dc_totals_map[dc_id_val]
+                dc_totals_obj['units'] += dc_qty_val
+                dc_totals_obj['cartons'] += cartons_val
+                dc_totals_obj['amount'] += amount_val
+                dc_totals_obj['skus'].add(sku)
+
+            totals['total_units_mother'] += mother_qty
+            totals['total_units_dc'] += dc_qty
+            totals['total_cartons_mother'] += mother_cartons
+            totals['total_cartons_dc'] += dc_cartons
+            totals['total_amount_mother'] += mother_amount
+            totals['total_amount_dc'] += dc_amount
+
+            sku_details.append({
+                'sku': sku,
+                'name': inv.get('name', ''),
+                'pack_size': pack_size,
+                'unit_price': unit_price,
+                'mother_qty': mother_qty,
+                'mother_cartons': mother_cartons,
+                'mother_amount': mother_amount,
+                'dc_total_qty': dc_qty,
+                'dc_total_cartons': dc_cartons,
+                'dc_total_amount': dc_amount,
+                'difference': difference,
+                'status': status,
+                'dc_breakdown': breakdown_list,
+                'inventory': {
+                    'available_total': int(inv.get('total', 0)),
+                    'shortage': int(shortage_map.get(sku, 0))
+                }
+            })
+
+        by_dc_totals: List[Dict[str, Any]] = []
+        for dc_id, totals_obj in by_dc_totals_map.items():
+            by_dc_totals.append({
+                'dc_id': dc_id,
+                'units': totals_obj['units'],
+                'cartons': totals_obj['cartons'],
+                'amount': totals_obj['amount'],
+                'skus': len(totals_obj['skus'])
+            })
         
         # Build validation result
         validation_result = {
@@ -364,7 +472,9 @@ async def validate_po_pair(
                 'over_allocated': over_allocated,
                 'under_allocated': under_allocated,
                 'extra_skus': extra_skus,
-                'total_inventory_warnings': len(inventory_warnings)
+                'total_inventory_warnings': len(inventory_warnings),
+                'amount_mismatch_count': amount_mismatch_count,
+                'has_amount_mismatch': amount_mismatch_count > 0
             },
             'mismatches': mismatches,
             'inventory_warnings': inventory_warnings,
@@ -375,7 +485,10 @@ async def validate_po_pair(
             'ship_windows': {
                 'mother_po': mother_ship_window,
                 'dc_po': dc_ship_window
-            }
+            },
+            'sku_details': sku_details,
+            'totals': totals,
+            'by_dc_totals': by_dc_totals
         }
         
         # Store review record
