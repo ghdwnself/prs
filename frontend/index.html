@@ -120,9 +120,70 @@
             margin-left: 8px;
         }
         .review-badge.issues { background: #fee2e2; color: #991b1b; }
+        .global-loading-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary-color), #f59e0b);
+            transition: width 0.3s ease, opacity 0.2s ease;
+            opacity: 0;
+            z-index: 2000;
+        }
+        .global-loading-bar.active { width: 100%; opacity: 1; animation: loadingPulse 1s ease-in-out infinite; }
+        @keyframes loadingPulse { from { opacity: 0.4; } to { opacity: 1; } }
+        .inline-spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.6);
+            border-top-color: #fff;
+            border-radius: 50%;
+            display: inline-block;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .dc-breakdown-list {
+            margin-top: 8px;
+            padding: 8px;
+            background: #f8fafc;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            display: none;
+        }
+        .dc-breakdown-item { font-size: 0.85rem; color: var(--text-muted); }
+        .status-badge.ok { background: #ecfdf3; color: #166534; }
+        .dc-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            margin: 4px;
+            font-size: 0.85rem;
+        }
+        .inventory-pill {
+            display: inline-flex;
+            gap: 6px;
+            align-items: center;
+            padding: 6px 10px;
+            background: #f1f5f9;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+        .btn-link {
+            background: none;
+            border: none;
+            color: var(--primary-color);
+            cursor: pointer;
+            font-weight: 600;
+            padding: 0;
+        }
     </style>
 </head>
 <body>
+    <div id="globalLoadingBar" class="global-loading-bar"></div>
     <div class="app-container">
         <!-- Sidebar -->
         <nav class="sidebar">
@@ -194,7 +255,7 @@
                         
                         <div style="text-align: center; margin-top: 24px;">
                             <button id="validateBtn" class="btn btn-primary" disabled style="min-width: 200px;">
-                                🔍 검증 시작
+                                ▶ 시작
                             </button>
                             <button id="clearBtn" class="btn btn-secondary" style="min-width: 120px; margin-left: 12px;">
                                 🔄 초기화
@@ -210,6 +271,41 @@
                         
                         <!-- Stats Grid -->
                         <div class="stats-grid" id="statsGrid"></div>
+
+                        <div id="dcTotalsCard" class="card" style="display: none;">
+                            <div class="card-header">
+                                <div class="card-title">🏷️ DC 합계</div>
+                            </div>
+                            <div id="dcTotalsList"></div>
+                        </div>
+
+                        <div id="skuTableCard" class="card" style="display: none;">
+                            <div class="card-header">
+                                <div class="card-title">📦 SKU 상세 검증</div>
+                                <div style="color: var(--text-muted); font-size: 0.9rem;">
+                                    모든 SKU의 Mother/DC 수량·카톤·금액 및 재고 상태를 확인하세요. DC별 할당은 '보기'로 펼칠 수 있습니다.
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="results-table">
+                                    <thead>
+                                        <tr>
+                                            <th>SKU / 상품명</th>
+                                            <th>팩 사이즈</th>
+                                            <th>Mother 수량/카톤</th>
+                                            <th>DC 총합 수량/카톤</th>
+                                            <th>차이</th>
+                                            <th>상태</th>
+                                            <th>단가</th>
+                                            <th>DC 금액</th>
+                                            <th>재고 (가용/부족)</th>
+                                            <th>DC Breakdown</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="skuTableBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
                         
                         <!-- Mismatches Section -->
                         <div id="mismatchSection" class="card" style="display: none;">
@@ -253,7 +349,7 @@
                         <!-- Action Buttons -->
                         <div class="action-buttons">
                             <button id="downloadCsvBtn" class="btn btn-primary">
-                                📥 불일치 항목 CSV 다운로드
+                                📥 전체 SKU CSV 다운로드
                             </button>
                             <button id="generateOrderBtn" class="btn btn-success">
                                 📋 Order Import 생성
@@ -286,31 +382,76 @@
         let motherFile = null;
         let dcFile = null;
         let validationData = null;
-        
-        // DOM elements
+
         const motherPoZone = document.getElementById('motherPoZone');
         const motherPoInput = document.getElementById('motherPoInput');
         const motherPoText = document.getElementById('motherPoText');
-        
         const dcPoZone = document.getElementById('dcPoZone');
         const dcPoInput = document.getElementById('dcPoInput');
         const dcPoText = document.getElementById('dcPoText');
-        
         const validateBtn = document.getElementById('validateBtn');
         const clearBtn = document.getElementById('clearBtn');
         const validationResults = document.getElementById('validationResults');
-        
-        // File upload handlers (prevent re-opening bug)
+        const summaryBannerEl = document.getElementById('summaryBanner');
+        const statsGrid = document.getElementById('statsGrid');
+        const mismatchSection = document.getElementById('mismatchSection');
+        const mismatchTableBody = document.getElementById('mismatchTableBody');
+        const inventorySection = document.getElementById('inventorySection');
+        const inventoryTableBody = document.getElementById('inventoryTableBody');
+        const skuTableCard = document.getElementById('skuTableCard');
+        const skuTableBody = document.getElementById('skuTableBody');
+        const dcTotalsCard = document.getElementById('dcTotalsCard');
+        const dcTotalsList = document.getElementById('dcTotalsList');
+        const loadingBar = document.getElementById('globalLoadingBar');
+
+        function formatNumber(val) {
+            if (val === undefined || val === null || isNaN(val)) return '0';
+            return Number(val).toLocaleString('en-US');
+        }
+
+        function formatCurrencySafe(amount) {
+            try {
+                if (typeof formatCurrency === 'function') {
+                    return formatCurrency(amount);
+                }
+            } catch (e) {
+                console.warn('Fallback currency formatter in use.', e);
+            }
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
+        }
+
+        function setLoadingState(isLoading) {
+            if (isLoading) {
+                loadingBar.classList.add('active');
+                validateBtn.disabled = true;
+                validateBtn.innerHTML = '<span class="inline-spinner"></span> 진행 중...';
+            } else {
+                loadingBar.classList.remove('active');
+                validateBtn.disabled = !(motherFile && dcFile);
+                validateBtn.innerHTML = '▶ 시작';
+            }
+        }
+
+        function resetResults() {
+            validationResults.classList.remove('active');
+            summaryBannerEl.className = '';
+            summaryBannerEl.innerHTML = '';
+            statsGrid.innerHTML = '';
+            mismatchSection.style.display = 'none';
+            inventorySection.style.display = 'none';
+            skuTableCard.style.display = 'none';
+            dcTotalsCard.style.display = 'none';
+        }
+
         motherPoZone.addEventListener('click', (e) => {
             e.stopPropagation();
             motherPoInput.click();
         });
-        
         dcPoZone.addEventListener('click', (e) => {
             e.stopPropagation();
             dcPoInput.click();
         });
-        
+
         motherPoInput.addEventListener('change', (e) => {
             e.stopPropagation();
             const file = e.target.files[0];
@@ -321,7 +462,7 @@
                 checkValidateButton();
             }
         });
-        
+
         dcPoInput.addEventListener('change', (e) => {
             e.stopPropagation();
             const file = e.target.files[0];
@@ -332,138 +473,208 @@
                 checkValidateButton();
             }
         });
-        
+
         function checkValidateButton() {
             validateBtn.disabled = !(motherFile && dcFile);
+            if (!validateBtn.disabled && !loadingBar.classList.contains('active')) {
+                validateBtn.innerHTML = '▶ 시작';
+            }
         }
-        
-        // Clear/Reset
+
         clearBtn.addEventListener('click', () => {
             motherFile = null;
             dcFile = null;
+            validationData = null;
             motherPoInput.value = '';
             dcPoInput.value = '';
             motherPoZone.classList.remove('has-file');
             dcPoZone.classList.remove('has-file');
             motherPoText.textContent = 'PDF 파일 선택';
             dcPoText.textContent = 'PDF 파일 선택';
-            validationResults.classList.remove('active');
+            resetResults();
             checkValidateButton();
         });
-        
-        // Validate
+
         validateBtn.addEventListener('click', async () => {
             try {
-                validateBtn.disabled = true;
-                validateBtn.textContent = '🔄 검증 중...';
-                
+                setLoadingState(true);
                 const formData = new FormData();
                 formData.append('mother_file', motherFile);
                 formData.append('dc_file', dcFile);
-                
+
                 const res = await fetch(`${API}/api/validate_po_pair`, {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 if (!res.ok) {
                     const errorText = await res.text();
                     throw new Error(errorText);
                 }
-                
+
                 const result = await res.json();
                 validationData = result.validation;
-                
+
                 displayValidationResults(validationData);
                 loadRecentReviews();
-                
-                validateBtn.disabled = false;
-                validateBtn.textContent = '🔍 검증 시작';
-                
+                showToast('검증을 완료했습니다. 결과를 확인하세요.', 'success');
             } catch (err) {
-                alert(`검증 오류: ${err.message}`);
-                validateBtn.disabled = false;
-                validateBtn.textContent = '🔍 검증 시작';
+                console.error(err);
+                showToast(`검증 오류: ${err.message}`, 'error');
+            } finally {
+                setLoadingState(false);
             }
         });
-        
+
+        function buildStatusBadge(status) {
+            const statusKey = (status || '').toLowerCase();
+            if (statusKey === 'over') return { text: '⬆️ 초과', cls: 'status-over' };
+            if (statusKey === 'under') return { text: '⬇️ 미달', cls: 'status-under' };
+            if (statusKey === 'extra') return { text: '➕ 추가', cls: 'status-extra' };
+            return { text: '✅ 정상', cls: 'ok' };
+        }
+
+        function renderDcTotals(dcTotals) {
+            if (!dcTotals || dcTotals.length === 0) {
+                dcTotalsCard.style.display = 'none';
+                dcTotalsList.innerHTML = '';
+                return;
+            }
+            dcTotalsCard.style.display = 'block';
+            dcTotalsList.innerHTML = dcTotals.map(dc => `
+                <span class="dc-chip">
+                    DC#${dc.dc_id}: ${formatNumber(dc.units)}u · ${formatNumber(dc.cartons)}ctn · ${formatCurrencySafe(dc.amount || 0)} (${formatNumber(dc.skus)} SKU)
+                </span>
+            `).join('');
+        }
+
+        function renderSkuTable(details) {
+            if (!details || details.length === 0) {
+                skuTableCard.style.display = 'none';
+                skuTableBody.innerHTML = '';
+                return;
+            }
+            skuTableCard.style.display = 'block';
+            skuTableBody.innerHTML = '';
+            details.forEach((item, idx) => {
+                const statusBadge = buildStatusBadge(item.status);
+                const diffText = item.difference > 0 ? `+${item.difference}` : item.difference;
+                const breakdownId = `dc-breakdown-${idx}`;
+                const breakdownContent = (item.dc_breakdown || []).map(dc => `
+                    <div class="dc-breakdown-item">
+                        DC#${dc.dc_id}: ${formatNumber(dc.qty)}u / ${formatNumber(dc.cartons)}ctn / ${formatCurrencySafe(dc.amount || 0)}
+                    </div>
+                `).join('') || '<div class="dc-breakdown-item">할당 없음</div>';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>
+                        <strong>${item.sku}</strong>
+                        <div style="color: var(--text-muted); font-size: 0.85rem;">${item.name || '-'}</div>
+                    </td>
+                    <td>${formatNumber(item.pack_size)}</td>
+                    <td>${formatNumber(item.mother_qty)}<div style="color: var(--text-muted); font-size:0.8rem;">${formatNumber(item.mother_cartons)} ctn</div></td>
+                    <td>${formatNumber(item.dc_total_qty)}<div style="color: var(--text-muted); font-size:0.8rem;">${formatNumber(item.dc_total_cartons)} ctn</div></td>
+                    <td><strong>${diffText}</strong></td>
+                    <td><span class="status-badge ${statusBadge.cls}">${statusBadge.text}</span></td>
+                    <td>${formatCurrencySafe(item.unit_price || 0)}</td>
+                    <td>${formatCurrencySafe(item.dc_total_amount || ((item.dc_total_qty || 0) * (item.unit_price || 0)))}</td>
+                    <td>
+                        <div class="inventory-pill">가용 ${formatNumber(item.inventory?.available_total || 0)}</div>
+                        <div style="color:${(item.inventory?.shortage || 0) > 0 ? '#dc2626' : '#10b981'}; font-size:0.85rem;">부족 ${formatNumber(item.inventory?.shortage || 0)}</div>
+                    </td>
+                    <td>
+                        <button class="btn-link breakdown-toggle" data-target="${breakdownId}">보기</button>
+                        <div id="${breakdownId}" class="dc-breakdown-list">${breakdownContent}</div>
+                    </td>
+                `;
+                skuTableBody.appendChild(tr);
+            });
+
+            document.querySelectorAll('.breakdown-toggle').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const target = document.getElementById(btn.dataset.target);
+                    if (!target) return;
+                    target.style.display = target.style.display === 'block' ? 'none' : 'block';
+                });
+            });
+        }
+
         function displayValidationResults(validation) {
             validationResults.classList.add('active');
-            
-            const summary = validation.summary;
+
+            const summary = validation.summary || {};
             const mismatches = validation.mismatches || [];
             const inventoryWarnings = validation.inventory_warnings || [];
-            
-            // Summary Banner
-            const summaryBanner = document.getElementById('summaryBanner');
+            const skuDetails = validation.sku_details || [];
+            const totals = validation.totals || {};
+            const byDcTotals = validation.by_dc_totals || [];
+            const amountMismatchCount = summary.amount_mismatch_count || 0;
+
             if (validation.is_valid) {
-                summaryBanner.className = 'summary-banner success';
-                summaryBanner.innerHTML = '✅ 모든 검증 통과! DC 할당량이 Mother PO와 일치하며 재고도 충분합니다.';
+                summaryBannerEl.className = 'summary-banner success';
+                summaryBannerEl.innerHTML = '✅ 모든 검증 통과! DC 할당량이 Mother PO와 일치하며 재고도 충분합니다.';
             } else if (mismatches.length > 0 && inventoryWarnings.length > 0) {
-                summaryBanner.className = 'summary-banner error';
-                summaryBanner.innerHTML = `⚠️ 할당 불일치 ${mismatches.length}건 및 재고 부족 ${inventoryWarnings.length}건 발견`;
-            } else if (mismatches.length > 0) {
-                summaryBanner.className = 'summary-banner warning';
-                summaryBanner.innerHTML = `⚠️ 할당 불일치 ${mismatches.length}건 발견`;
+                summaryBannerEl.className = 'summary-banner error';
+                summaryBannerEl.innerHTML = `⚠️ 할당 불일치 ${mismatches.length}건, 재고 부족 ${inventoryWarnings.length}건, 금액 불일치 ${amountMismatchCount}건`;
+            } else if (mismatches.length > 0 || amountMismatchCount > 0) {
+                summaryBannerEl.className = 'summary-banner warning';
+                summaryBannerEl.innerHTML = `⚠️ 할당/금액 불일치 ${mismatches.length}건 · 금액 ${amountMismatchCount}건`;
             } else {
-                summaryBanner.className = 'summary-banner warning';
-                summaryBanner.innerHTML = `⚠️ 재고 부족 ${inventoryWarnings.length}건 발견`;
+                summaryBannerEl.className = 'summary-banner warning';
+                summaryBannerEl.innerHTML = `⚠️ 재고 부족 ${inventoryWarnings.length}건 발견`;
             }
-            
-            // Stats Grid
-            const statsGrid = document.getElementById('statsGrid');
+
             statsGrid.innerHTML = `
                 <div class="stat-card">
-                    <div class="stat-label">일치 SKU</div>
-                    <div class="stat-value">${summary.matching_skus}</div>
+                    <div class="stat-label">총 SKU 수</div>
+                    <div class="stat-value">${formatNumber(totals.total_skus || 0)}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">불일치 SKU</div>
-                    <div class="stat-value ${summary.mismatched_skus > 0 ? 'danger' : ''}">${summary.mismatched_skus}</div>
+                    <div class="stat-label">Mother 합계 (수량/카톤)</div>
+                    <div class="stat-value">${formatNumber(totals.total_units_mother || 0)}</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem;">${formatNumber(totals.total_cartons_mother || 0)} ctn</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">초과 할당</div>
-                    <div class="stat-value ${summary.over_allocated > 0 ? 'warning' : ''}">${summary.over_allocated}</div>
+                    <div class="stat-label">DC 합계 (수량/카톤)</div>
+                    <div class="stat-value">${formatNumber(totals.total_units_dc || 0)}</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem;">${formatNumber(totals.total_cartons_dc || 0)} ctn</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">미달 할당</div>
-                    <div class="stat-value ${summary.under_allocated > 0 ? 'danger' : ''}">${summary.under_allocated}</div>
+                    <div class="stat-label">Mother 금액</div>
+                    <div class="stat-value">${formatCurrencySafe(totals.total_amount_mother || 0)}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">추가 SKU</div>
-                    <div class="stat-value ${summary.extra_skus > 0 ? 'warning' : ''}">${summary.extra_skus}</div>
+                    <div class="stat-label">DC 금액</div>
+                    <div class="stat-value">${formatCurrencySafe(totals.total_amount_dc || 0)}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">재고 경고</div>
-                    <div class="stat-value ${summary.total_inventory_warnings > 0 ? 'danger' : ''}">${summary.total_inventory_warnings}</div>
+                    <div class="stat-label">불일치 / 재고 경고</div>
+                    <div class="stat-value ${summary.mismatched_skus > 0 ? 'warning' : ''}">${formatNumber(summary.mismatched_skus || 0)}</div>
+                    <div style="color: ${summary.total_inventory_warnings > 0 ? '#dc2626' : 'var(--text-muted)'}; font-size: 0.85rem;">재고 경고 ${formatNumber(summary.total_inventory_warnings || 0)} | 금액 ${formatNumber(amountMismatchCount)}</div>
                 </div>
             `;
-            
-            // Mismatches Table
-            const mismatchSection = document.getElementById('mismatchSection');
-            const mismatchTableBody = document.getElementById('mismatchTableBody');
-            
+
+            renderDcTotals(byDcTotals);
+            renderSkuTable(skuDetails);
+
             if (mismatches.length > 0) {
                 mismatchSection.style.display = 'block';
                 mismatchTableBody.innerHTML = '';
-                
+
                 mismatches.forEach(item => {
-                    const statusClass = `status-${item.status}`;
-                    const statusText = item.status === 'over' ? '⬆️ 초과' : 
-                                      item.status === 'under' ? '⬇️ 미달' : 
-                                      '➕ 추가';
-                    
-                    const dcBreakdown = item.dc_breakdown.map(dc => 
+                    const statusInfo = buildStatusBadge(item.status);
+                    const dcBreakdown = item.dc_breakdown.map(dc =>
                         `DC#${dc.dc_id}: ${dc.qty}`
                     ).join(', ');
-                    
+
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td><strong>${item.sku}</strong></td>
                         <td>${item.mother_qty}</td>
                         <td>${item.dc_total}</td>
                         <td><strong>${item.difference > 0 ? '+' : ''}${item.difference}</strong></td>
-                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        <td><span class="status-badge ${statusInfo.cls}">${statusInfo.text}</span></td>
                         <td class="dc-breakdown">${dcBreakdown}</td>
                     `;
                     mismatchTableBody.appendChild(tr);
@@ -471,19 +682,15 @@
             } else {
                 mismatchSection.style.display = 'none';
             }
-            
-            // Inventory Warnings Table
-            const inventorySection = document.getElementById('inventorySection');
-            const inventoryTableBody = document.getElementById('inventoryTableBody');
-            
+
             if (inventoryWarnings.length > 0) {
                 inventorySection.style.display = 'block';
                 inventoryTableBody.innerHTML = '';
-                
+
                 inventoryWarnings.forEach(item => {
                     const statusClass = item.status === '🚨 Out of Stock' ? 'status-out-of-stock' : 'status-inventory-low';
                     const statusText = item.available_stock === 0 ? '🚨 재고 없음' : '⚠️ 재고 부족';
-                    
+
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td><strong>${item.sku}</strong></td>
@@ -498,62 +705,59 @@
                 inventorySection.style.display = 'none';
             }
         }
-        
-        // Download CSV
+
         document.getElementById('downloadCsvBtn').addEventListener('click', () => {
-            if (!validationData || !validationData.mismatches) {
-                alert('다운로드할 불일치 항목이 없습니다.');
+            const rows = validationData && validationData.sku_details ? validationData.sku_details : [];
+            if (!rows || rows.length === 0) {
+                showToast('다운로드할 데이터가 없습니다.', 'error');
                 return;
             }
-            
-            const mismatches = validationData.mismatches;
-            let csv = 'SKU,Mother PO Qty,DC Total Qty,Difference,Status,DC Breakdown\n';
-            
-            mismatches.forEach(item => {
-                const dcBreakdown = item.dc_breakdown.map(dc => `DC#${dc.dc_id}:${dc.qty}`).join('; ');
-                const statusText = item.status === 'over' ? 'Over' : item.status === 'under' ? 'Under' : 'Extra';
-                csv += `${item.sku},${item.mother_qty},${item.dc_total},${item.difference},${statusText},"${dcBreakdown}"\n`;
+
+            let csv = 'SKU,Name,Pack Size,Mother Qty,Mother Cartons,DC Qty,DC Cartons,Difference,Status,Unit Price,DC Amount,Available Inventory,Shortage,DC Breakdown\n';
+
+            rows.forEach(item => {
+                const breakdown = (item.dc_breakdown || []).map(dc => `DC#${dc.dc_id}: ${dc.qty}u/${dc.cartons}ctn/${(dc.amount || 0).toFixed(2)}`).join(' | ');
+                const safeName = (item.name || '').replace(/"/g, '""');
+                csv += `${item.sku || ''},"${safeName}",${item.pack_size || 0},${item.mother_qty || 0},${item.mother_cartons || 0},${item.dc_total_qty || 0},${item.dc_total_cartons || 0},${item.difference || 0},${item.status || ''},${(item.unit_price || 0).toFixed(2)},${(item.dc_total_amount || 0).toFixed(2)},${item.inventory?.available_total || 0},${item.inventory?.shortage || 0},"${breakdown}"\n`;
             });
-            
+
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.download = `po_mismatches_${new Date().toISOString().split('T')[0]}.csv`;
+            link.download = `po_validation_${new Date().toISOString().split('T')[0]}.csv`;
             link.click();
         });
-        
-        // Generate Order Import
+
         document.getElementById('generateOrderBtn').addEventListener('click', () => {
             if (!validationData) {
                 alert('먼저 검증을 수행해주세요.');
                 return;
             }
-            
+
             const hasMismatches = validationData.mismatches && validationData.mismatches.length > 0;
-            
+
             if (hasMismatches) {
                 const confirmed = confirm('⚠️ 불일치 항목이 있습니다. 그래도 Order Import를 생성하시겠습니까?');
                 if (!confirmed) return;
             }
-            
+
             alert('Order Import 생성 기능은 추후 구현 예정입니다.\n현재는 MMD 페이지에서 생성 가능합니다.');
         });
-        
-        // Load Recent Reviews
+
         async function loadRecentReviews() {
             try {
                 const res = await fetch(`${API}/api/po_reviews?limit=5`);
                 const result = await res.json();
-                
+
                 const reviewsList = document.getElementById('recentReviewsList');
-                
+
                 if (result.status === 'success' && result.data.length > 0) {
                     reviewsList.innerHTML = '';
-                    
+
                     result.data.forEach(review => {
                         const hasIssues = review.mismatch_count > 0 || review.inventory_warning_count > 0;
                         const timestamp = new Date(review.timestamp).toLocaleString('ko-KR');
-                        
+
                         const div = document.createElement('div');
                         div.className = 'review-item';
                         div.innerHTML = `
@@ -576,8 +780,7 @@
                 console.error('Failed to load recent reviews:', err);
             }
         }
-        
-        // Initialize
+
         loadRecentReviews();
     </script>
 </body>
