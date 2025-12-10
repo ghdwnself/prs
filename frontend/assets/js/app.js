@@ -87,12 +87,7 @@ window.showToast = function(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     
-    let icon = 'ℹ️';
-    if (type === 'success') icon = '✅';
-    if (type === 'error') icon = '⚠️';
-
     toast.innerHTML = `
-        <span style="font-size: 1.2rem;">${icon}</span>
         <div style="flex:1; font-size: 0.9rem; font-weight: 500;">${message}</div>
     `;
 

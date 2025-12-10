@@ -8,6 +8,7 @@ import pandas as pd
 import uuid
 import json
 import re
+import heapq
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
@@ -25,6 +26,8 @@ from services.utils import safe_int
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["MMD"])
+
+SKU_PREVIEW_LIMIT = 5
 
 # DC 정보 로드 (캐싱)
 DC_LOOKUP = {}
@@ -52,6 +55,23 @@ def _sanitize_filename(filename: str) -> str:
 
 def _get_stock_value(data: Dict[str, Any], primary_key: str) -> int:
     return safe_int(data.get(primary_key))
+
+
+def _is_unregistered_sku(inv_data: Dict[str, Any], sku: str) -> bool:
+    """
+    Determine whether a SKU is unregistered in master data.
+
+    Args:
+        inv_data: Inventory data for the SKU.
+        sku: SKU identifier string.
+
+    Returns:
+        True when no product name exists and the SKU is absent from product_map.
+        Uses an empty dict fallback if product_map is not available on data_loader.
+    """
+    product_map = getattr(data_loader, "product_map", None) or {}
+    return (inv_data.get('name', '') == '') and (sku not in product_map)
+
 
 # --- Helper Functions ---
 def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:
@@ -248,10 +268,15 @@ async def validate_po_pair(
             raise HTTPException(400, f"Failed to parse DC PO: {dc_error}")
         
         # Extract PO numbers and ship windows
-        mother_po_number = mother_items[0].get('po_number', '') if mother_items else ''
-        dc_po_number = dc_items[0].get('po_number', '') if dc_items else ''
-        mother_ship_window = mother_items[0].get('ship_window', 'TBD') if mother_items else 'TBD'
-        dc_ship_window = dc_items[0].get('ship_window', 'TBD') if dc_items else 'TBD'
+        mother_first = mother_items[0] if mother_items else {}
+        dc_first = dc_items[0] if dc_items else {}
+        mother_po_number = mother_first.get('po_number', '')
+        dc_po_number = dc_first.get('po_number', '')
+        mother_ship_window = mother_first.get('ship_window', 'TBD')
+        dc_ship_window = dc_first.get('ship_window', 'TBD')
+        vendor = mother_first.get('vendor', '')
+        buyer = mother_first.get('buyer', '')
+        dc_po_numbers = list({str(item.get('po_number', '')).strip() for item in dc_items if item.get('po_number')})
         
         # Build Mother PO totals by SKU
         mother_totals = {}
@@ -367,11 +392,8 @@ async def validate_po_pair(
             'total_units_mother': 0,
             'total_units_dc': 0,
             'total_cartons_mother': 0,
-            'total_cartons_dc': 0,
-            'total_amount_mother': 0.0,
-            'total_amount_dc': 0.0
+            'total_cartons_dc': 0
         }
-        amount_mismatch_count = 0
 
         for sku in all_skus:
             mother_qty = int(mother_totals.get(sku, 0))
@@ -382,12 +404,6 @@ async def validate_po_pair(
 
             mother_cartons = math.ceil(mother_qty / pack_size) if mother_qty > 0 else 0
             dc_cartons = math.ceil(dc_qty / pack_size) if dc_qty > 0 else 0
-
-            mother_amount = mother_qty * unit_price
-            dc_amount = dc_qty * unit_price
-            amount_differs = abs(mother_amount - dc_amount) > 0.01
-            if amount_differs:
-                amount_mismatch_count += 1
 
             difference = dc_qty - mother_qty
             if mother_qty == 0 and dc_qty > 0:
@@ -404,12 +420,10 @@ async def validate_po_pair(
                 dc_id_val = str(dc_entry.get('dc_id', '')).strip()
                 dc_qty_val = int(dc_entry.get('qty', 0))
                 cartons_val = math.ceil(dc_qty_val / pack_size) if dc_qty_val > 0 else 0
-                amount_val = dc_qty_val * unit_price
                 breakdown_list.append({
                     'dc_id': dc_id_val,
                     'qty': dc_qty_val,
-                    'cartons': cartons_val,
-                    'amount': amount_val
+                    'cartons': cartons_val
                 })
 
                 if dc_id_val not in by_dc_totals_map:
@@ -417,21 +431,26 @@ async def validate_po_pair(
                         'dc_id': dc_id_val,
                         'units': 0,
                         'cartons': 0,
-                        'amount': 0.0,
                         'skus': set()
                     }
                 dc_totals_obj = by_dc_totals_map[dc_id_val]
                 dc_totals_obj['units'] += dc_qty_val
                 dc_totals_obj['cartons'] += cartons_val
-                dc_totals_obj['amount'] += amount_val
                 dc_totals_obj['skus'].add(sku)
 
             totals['total_units_mother'] += mother_qty
             totals['total_units_dc'] += dc_qty
             totals['total_cartons_mother'] += mother_cartons
             totals['total_cartons_dc'] += dc_cartons
-            totals['total_amount_mother'] += mother_amount
-            totals['total_amount_dc'] += dc_amount
+            
+            locations = inv.get('locations', {})
+            available_main = int(locations.get('MAIN', 0))
+            available_sub = int(locations.get('SUB', 0))
+            available_total = int(inv.get('total', 0))
+            shortage_total = int(shortage_map.get(sku, 0))
+            shortage_main = max(0, mother_qty - available_main)
+            shortage_sub = max(0, mother_qty - available_sub)
+            is_unregistered_sku = _is_unregistered_sku(inv, sku)
 
             sku_details.append({
                 'sku': sku,
@@ -440,41 +459,69 @@ async def validate_po_pair(
                 'unit_price': unit_price,
                 'mother_qty': mother_qty,
                 'mother_cartons': mother_cartons,
-                'mother_amount': mother_amount,
                 'dc_total_qty': dc_qty,
                 'dc_total_cartons': dc_cartons,
-                'dc_total_amount': dc_amount,
                 'difference': difference,
                 'status': status,
                 'dc_breakdown': breakdown_list,
                 'inventory': {
-                    'available_total': int(inv.get('total', 0)),
-                    'shortage': int(shortage_map.get(sku, 0))
-                }
+                    'mode': 'COMBINED',
+                    'available_total': available_total,
+                    'available_main': available_main,
+                    'available_sub': available_sub,
+                    'shortage': shortage_total
+                },
+                'inventory_modes': {
+                    'combined': {'available': available_total, 'shortage': shortage_total},
+                    'main': {'available': available_main, 'shortage': shortage_main},
+                    'sub': {'available': available_sub, 'shortage': shortage_sub}
+                },
+                'is_unregistered_sku': is_unregistered_sku
             })
 
         by_dc_totals: List[Dict[str, Any]] = []
         for dc_id, totals_obj in by_dc_totals_map.items():
+            sku_preview = heapq.nsmallest(SKU_PREVIEW_LIMIT, totals_obj['skus'])
             by_dc_totals.append({
                 'dc_id': dc_id,
                 'units': totals_obj['units'],
                 'cartons': totals_obj['cartons'],
-                'amount': totals_obj['amount'],
-                'skus': len(totals_obj['skus'])
+                'skus': len(totals_obj['skus']),
+                'sku_preview': sku_preview,
+                'pallets': [{
+                    'name': f"DC #{dc_id}",
+                    'pallet_number': str(dc_id),
+                    'skus': sku_preview,
+                    'total_units': totals_obj['units'],
+                    'total_cartons': totals_obj['cartons']
+                }]
             })
         
+        total_qty_difference = totals['total_units_dc'] - totals['total_units_mother']
+        total_qty_match = totals['total_units_dc'] == totals['total_units_mother']
+        dc_po_number_list = [num for num in (dc_po_numbers if dc_po_numbers else ([dc_po_number] if dc_po_number else [])) if num]
+        po_meta = {
+            'po_number': mother_po_number or '',
+            'dc_po_numbers': dc_po_number_list,
+            'vendor': vendor or '',
+            'buyer': buyer or '',
+            'ship_window': mother_ship_window or 'TBD',
+            'dc_ship_window': dc_ship_window or 'TBD'
+        }
         # Build validation result
         validation_result = {
-            'is_valid': len(mismatches) == 0 and len(inventory_warnings) == 0,
+            'is_valid': len(mismatches) == 0 and len(inventory_warnings) == 0 and total_qty_match,
+            'total_match': {
+                'qty_match': total_qty_match,
+                'difference_units': total_qty_difference
+            },
             'summary': {
                 'matching_skus': matching_count,
                 'mismatched_skus': len(mismatches),
                 'over_allocated': over_allocated,
                 'under_allocated': under_allocated,
                 'extra_skus': extra_skus,
-                'total_inventory_warnings': len(inventory_warnings),
-                'amount_mismatch_count': amount_mismatch_count,
-                'has_amount_mismatch': amount_mismatch_count > 0
+                'total_inventory_warnings': len(inventory_warnings)
             },
             'mismatches': mismatches,
             'inventory_warnings': inventory_warnings,
@@ -486,6 +533,7 @@ async def validate_po_pair(
                 'mother_po': mother_ship_window,
                 'dc_po': dc_ship_window
             },
+            'po_meta': po_meta,
             'sku_details': sku_details,
             'totals': totals,
             'by_dc_totals': by_dc_totals
@@ -497,6 +545,10 @@ async def validate_po_pair(
             'timestamp': timestamp,
             'mother_po': mother_po_number,
             'dc_po': dc_po_number,
+            'po_meta': po_meta,
+            'history_key': mother_po_number,
+            'source': buyer or vendor,
+            'customer_file': mother_po_number,
             'summary': validation_result['summary'],
             'mismatch_count': len(mismatches),
             'inventory_warning_count': len(inventory_warnings),

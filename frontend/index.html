@@ -172,6 +172,15 @@
             border-radius: 6px;
             font-weight: 600;
         }
+        .po-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .pallet-block { border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; margin-top: 8px; background: #f8fafc; }
+        .pallet-title { font-weight: 600; color: var(--text-main); }
+        .pallet-subtitle { font-size: 0.85rem; color: var(--text-muted); }
+        .pallet-total { font-size: 0.9rem; margin-top: 4px; }
+        .dc-summary-card { display: flex; flex-direction: column; align-items: flex-start; }
+        .dc-summary-title { font-weight: 700; color: var(--text-main); }
+        .dc-summary-meta { margin-top: 6px; }
+        .unregistered-flag { color: var(--danger-color); font-size: 0.8rem; margin-top: 4px; }
         .btn-link {
             background: none;
             border: none;
@@ -221,10 +230,10 @@
                 <div class="validation-container">
                     
                     <!-- Upload Section -->
-                    <div class="card">
-                        <div class="card-header">
-                            <div class="card-title">📋 PO 파일 업로드</div>
-                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">PO 파일 업로드</div>
+                            </div>
                         <p style="color: var(--text-muted); margin-bottom: 24px;">
                             Mother PO와 DC PO를 업로드하여 할당량 검증 및 재고 확인을 수행합니다.
                         </p>
@@ -255,10 +264,10 @@
                         
                         <div style="text-align: center; margin-top: 24px;">
                             <button id="validateBtn" class="btn btn-primary" disabled style="min-width: 200px;">
-                                ▶ 시작
+                                시작
                             </button>
                             <button id="clearBtn" class="btn btn-secondary" style="min-width: 120px; margin-left: 12px;">
-                                🔄 초기화
+                                초기화
                             </button>
                         </div>
                     </div>
@@ -268,22 +277,40 @@
                         
                         <!-- Summary Banner -->
                         <div id="summaryBanner"></div>
+
+                        <!-- PO Meta -->
+                        <div id="poMetaCard" class="card" style="display:none;">
+                            <div class="card-header">
+                                <div class="card-title">PO 정보</div>
+                            </div>
+                            <div id="poMetaBody" class="po-meta-grid"></div>
+                        </div>
                         
                         <!-- Stats Grid -->
                         <div class="stats-grid" id="statsGrid"></div>
 
                         <div id="dcTotalsCard" class="card" style="display: none;">
                             <div class="card-header">
-                                <div class="card-title">🏷️ DC 합계</div>
+                                <div class="card-title">DC 합계 및 팔렛 요약</div>
                             </div>
                             <div id="dcTotalsList"></div>
                         </div>
 
                         <div id="skuTableCard" class="card" style="display: none;">
                             <div class="card-header">
-                                <div class="card-title">📦 SKU 상세 검증</div>
-                                <div style="color: var(--text-muted); font-size: 0.9rem;">
-                                    모든 SKU의 Mother/DC 수량·카톤·금액 및 재고 상태를 확인하세요. DC별 할당은 '보기'로 펼칠 수 있습니다.
+                                <div>
+                                    <div class="card-title">SKU 상세 검증</div>
+                                    <div style="color: var(--text-muted); font-size: 0.9rem;">
+                                        Mother/DC 수량과 재고 상태를 확인하세요. 기본은 MAIN+SUB 통합 재고이며, 탭으로 MAIN 또는 SUB 단독을 볼 수 있습니다.
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:8px; align-items:center;">
+                                    <span style="font-size:0.85rem; color:var(--text-muted);">재고 보기</span>
+                                    <div id="inventoryToggle" class="btn-group" role="group" aria-label="inventory modes">
+                                        <button type="button" class="btn btn-secondary" data-mode="combined">MAIN+SUB</button>
+                                        <button type="button" class="btn btn-secondary" data-mode="main">MAIN</button>
+                                        <button type="button" class="btn btn-secondary" data-mode="sub">SUB</button>
+                                    </div>
                                 </div>
                             </div>
                             <div class="table-responsive">
@@ -296,9 +323,8 @@
                                             <th>DC 총합 수량/카톤</th>
                                             <th>차이</th>
                                             <th>상태</th>
-                                            <th>단가</th>
-                                            <th>DC 금액</th>
-                                            <th>재고 (가용/부족)</th>
+                                            <th>재고 (선택 모드)</th>
+                                            <th>부족 수량</th>
                                             <th>DC Breakdown</th>
                                         </tr>
                                     </thead>
@@ -310,7 +336,7 @@
                         <!-- Mismatches Section -->
                         <div id="mismatchSection" class="card" style="display: none;">
                             <div class="card-header">
-                                <div class="card-title">⚠️ 할당량 불일치 항목</div>
+                                <div class="card-title">할당량 불일치 항목</div>
                             </div>
                             <table class="results-table">
                                 <thead>
@@ -330,7 +356,7 @@
                         <!-- Inventory Warnings Section -->
                         <div id="inventorySection" class="card" style="display: none; margin-top: 24px;">
                             <div class="card-header">
-                                <div class="card-title">📦 재고 부족 경고</div>
+                                <div class="card-title">재고 부족 경고</div>
                             </div>
                             <table class="results-table">
                                 <thead>
@@ -349,10 +375,10 @@
                         <!-- Action Buttons -->
                         <div class="action-buttons">
                             <button id="downloadCsvBtn" class="btn btn-primary">
-                                📥 전체 SKU CSV 다운로드
+                                CSV 다운로드
                             </button>
                             <button id="generateOrderBtn" class="btn btn-success">
-                                📋 Order Import 생성
+                                Order Import 생성
                             </button>
                         </div>
                     </div>
@@ -403,6 +429,10 @@
         const dcTotalsCard = document.getElementById('dcTotalsCard');
         const dcTotalsList = document.getElementById('dcTotalsList');
         const loadingBar = document.getElementById('globalLoadingBar');
+        const poMetaCard = document.getElementById('poMetaCard');
+        const poMetaBody = document.getElementById('poMetaBody');
+        const inventoryToggle = document.getElementById('inventoryToggle');
+        let inventoryMode = 'combined';
 
         function formatNumber(val) {
             if (val === undefined || val === null || isNaN(val)) return '0';
@@ -428,8 +458,38 @@
             } else {
                 loadingBar.classList.remove('active');
                 validateBtn.disabled = !(motherFile && dcFile);
-                validateBtn.innerHTML = '▶ 시작';
+                validateBtn.innerHTML = '시작';
             }
+        }
+
+        function setInventoryMode(mode) {
+            inventoryMode = mode;
+            if (inventoryToggle) {
+                inventoryToggle.querySelectorAll('.btn').forEach(btn => {
+                    if (btn.dataset.mode === mode) {
+                        btn.classList.add('btn-primary');
+                        btn.classList.remove('btn-secondary');
+                    } else {
+                        btn.classList.remove('btn-primary');
+                        btn.classList.add('btn-secondary');
+                    }
+                });
+            }
+            if (validationData && validationData.sku_details) {
+                renderSkuTable(validationData.sku_details);
+            }
+        }
+
+        function getInventoryModeData(item, mode) {
+            const modes = item.inventory_modes || {};
+            const defaultMode = modes.combined || {};
+            const selected = modes[mode] || defaultMode;
+            const fallbackAvailable = item.inventory?.available_total ?? 0;
+            const fallbackShortage = item.inventory?.shortage ?? 0;
+            return {
+                available: selected.available ?? fallbackAvailable,
+                shortage: selected.shortage ?? fallbackShortage
+            };
         }
 
         function resetResults() {
@@ -441,6 +501,7 @@
             inventorySection.style.display = 'none';
             skuTableCard.style.display = 'none';
             dcTotalsCard.style.display = 'none';
+            poMetaCard.style.display = 'none';
         }
 
         motherPoZone.addEventListener('click', (e) => {
@@ -458,7 +519,7 @@
             if (file) {
                 motherFile = file;
                 motherPoZone.classList.add('has-file');
-                motherPoText.textContent = `✅ ${file.name}`;
+                motherPoText.textContent = `${file.name}`;
                 checkValidateButton();
             }
         });
@@ -469,7 +530,7 @@
             if (file) {
                 dcFile = file;
                 dcPoZone.classList.add('has-file');
-                dcPoText.textContent = `✅ ${file.name}`;
+                dcPoText.textContent = `${file.name}`;
                 checkValidateButton();
             }
         });
@@ -477,7 +538,7 @@
         function checkValidateButton() {
             validateBtn.disabled = !(motherFile && dcFile);
             if (!validateBtn.disabled && !loadingBar.classList.contains('active')) {
-                validateBtn.innerHTML = '▶ 시작';
+                validateBtn.innerHTML = '시작';
             }
         }
 
@@ -493,7 +554,15 @@
             dcPoText.textContent = 'PDF 파일 선택';
             resetResults();
             checkValidateButton();
+            setInventoryMode('combined');
         });
+
+        if (inventoryToggle) {
+            inventoryToggle.querySelectorAll('.btn').forEach(btn => {
+                btn.addEventListener('click', () => setInventoryMode(btn.dataset.mode));
+            });
+            setInventoryMode('combined');
+        }
 
         validateBtn.addEventListener('click', async () => {
             try {
@@ -528,10 +597,10 @@
 
         function buildStatusBadge(status) {
             const statusKey = (status || '').toLowerCase();
-            if (statusKey === 'over') return { text: '⬆️ 초과', cls: 'status-over' };
-            if (statusKey === 'under') return { text: '⬇️ 미달', cls: 'status-under' };
-            if (statusKey === 'extra') return { text: '➕ 추가', cls: 'status-extra' };
-            return { text: '✅ 정상', cls: 'ok' };
+            if (statusKey === 'over') return { text: '초과', cls: 'status-over' };
+            if (statusKey === 'under') return { text: '미달', cls: 'status-under' };
+            if (statusKey === 'extra') return { text: '추가', cls: 'status-extra' };
+            return { text: '정상', cls: 'ok' };
         }
 
         function renderDcTotals(dcTotals) {
@@ -541,11 +610,22 @@
                 return;
             }
             dcTotalsCard.style.display = 'block';
-            dcTotalsList.innerHTML = dcTotals.map(dc => `
-                <span class="dc-chip">
-                    DC#${dc.dc_id}: ${formatNumber(dc.units)}u · ${formatNumber(dc.cartons)}ctn · ${formatCurrencySafe(dc.amount || 0)} (${formatNumber(dc.skus)} SKU)
-                </span>
-            `).join('');
+            dcTotalsList.innerHTML = dcTotals.map(dc => {
+                const palletBlocks = (dc.pallets || []).map(p => `
+                    <div class="pallet-block">
+                        <div class="pallet-title">${p.name}</div>
+                        <div class="pallet-subtitle">SKUs: ${(p.skus || []).join(', ') || '-'}</div>
+                        <div class="pallet-total">${formatNumber(p.total_units)}u · ${formatNumber(p.total_cartons)}ctn</div>
+                    </div>
+                `).join('');
+                return `
+                    <div class="stat-card dc-summary-card">
+                        <div class="dc-summary-title">DC #${dc.dc_id}</div>
+                        <div class="dc-summary-meta">${formatNumber(dc.units)}u · ${formatNumber(dc.cartons)}ctn (${formatNumber(dc.skus)} SKU)</div>
+                        ${palletBlocks}
+                    </div>
+                `;
+            }).join('');
         }
 
         function renderSkuTable(details) {
@@ -562,9 +642,13 @@
                 const breakdownId = `dc-breakdown-${idx}`;
                 const breakdownContent = (item.dc_breakdown || []).map(dc => `
                     <div class="dc-breakdown-item">
-                        DC#${dc.dc_id}: ${formatNumber(dc.qty)}u / ${formatNumber(dc.cartons)}ctn / ${formatCurrencySafe(dc.amount || 0)}
+                        DC#${dc.dc_id}: ${formatNumber(dc.qty)}u / ${formatNumber(dc.cartons)}ctn
                     </div>
                 `).join('') || '<div class="dc-breakdown-item">할당 없음</div>';
+                const invModeData = getInventoryModeData(item, inventoryMode);
+                const availableVal = invModeData.available;
+                const shortageVal = invModeData.shortage;
+                const inventoryLabel = inventoryMode === 'main' ? 'MAIN' : (inventoryMode === 'sub' ? 'SUB' : 'MAIN+SUB');
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -576,13 +660,14 @@
                     <td>${formatNumber(item.mother_qty)}<div style="color: var(--text-muted); font-size:0.8rem;">${formatNumber(item.mother_cartons)} ctn</div></td>
                     <td>${formatNumber(item.dc_total_qty)}<div style="color: var(--text-muted); font-size:0.8rem;">${formatNumber(item.dc_total_cartons)} ctn</div></td>
                     <td><strong>${diffText}</strong></td>
-                    <td><span class="status-badge ${statusBadge.cls}">${statusBadge.text}</span></td>
-                    <td>${formatCurrencySafe(item.unit_price || 0)}</td>
-                    <td>${formatCurrencySafe(item.dc_total_amount || ((item.dc_total_qty || 0) * (item.unit_price || 0)))}</td>
                     <td>
-                        <div class="inventory-pill">가용 ${formatNumber(item.inventory?.available_total || 0)}</div>
-                        <div style="color:${(item.inventory?.shortage || 0) > 0 ? '#dc2626' : '#10b981'}; font-size:0.85rem;">부족 ${formatNumber(item.inventory?.shortage || 0)}</div>
+                        <span class="status-badge ${statusBadge.cls}">${statusBadge.text}</span>
+                        ${item.is_unregistered_sku ? '<div class="unregistered-flag">미등록 SKU</div>' : ''}
                     </td>
+                    <td>
+                        <div class="inventory-pill">${inventoryLabel} ${formatNumber(availableVal)}</div>
+                    </td>
+                    <td style="color:${shortageVal > 0 ? '#dc2626' : '#0f5132'}">${formatNumber(shortageVal)}</td>
                     <td>
                         <button class="btn-link breakdown-toggle" data-target="${breakdownId}">보기</button>
                         <div id="${breakdownId}" class="dc-breakdown-list">${breakdownContent}</div>
@@ -609,20 +694,18 @@
             const skuDetails = validation.sku_details || [];
             const totals = validation.totals || {};
             const byDcTotals = validation.by_dc_totals || [];
-            const amountMismatchCount = summary.amount_mismatch_count || 0;
+            const totalMatch = validation.total_match || {};
+            const qtyDiff = Number(totalMatch.difference_units || 0);
+            const qtyMatch = Boolean(totalMatch.qty_match);
+            const poMeta = validation.po_meta || {};
 
-            if (validation.is_valid) {
+            if (qtyMatch && mismatches.length === 0) {
                 summaryBannerEl.className = 'summary-banner success';
-                summaryBannerEl.innerHTML = '✅ 모든 검증 통과! DC 할당량이 Mother PO와 일치하며 재고도 충분합니다.';
-            } else if (mismatches.length > 0 && inventoryWarnings.length > 0) {
-                summaryBannerEl.className = 'summary-banner error';
-                summaryBannerEl.innerHTML = `⚠️ 할당 불일치 ${mismatches.length}건, 재고 부족 ${inventoryWarnings.length}건, 금액 불일치 ${amountMismatchCount}건`;
-            } else if (mismatches.length > 0 || amountMismatchCount > 0) {
-                summaryBannerEl.className = 'summary-banner warning';
-                summaryBannerEl.innerHTML = `⚠️ 할당/금액 불일치 ${mismatches.length}건 · 금액 ${amountMismatchCount}건`;
+                summaryBannerEl.innerHTML = '총 수량이 일치합니다. 세부 내역을 확인하세요.';
             } else {
+                const diffText = qtyDiff > 0 ? `+${formatNumber(qtyDiff)}` : formatNumber(qtyDiff);
                 summaryBannerEl.className = 'summary-banner warning';
-                summaryBannerEl.innerHTML = `⚠️ 재고 부족 ${inventoryWarnings.length}건 발견`;
+                summaryBannerEl.innerHTML = `총 수량 차이: ${diffText} (Mother 대비 DC) · 불일치 SKU ${formatNumber(mismatches.length)} · 재고 경고 ${formatNumber(inventoryWarnings.length)}`;
             }
 
             statsGrid.innerHTML = `
@@ -641,19 +724,29 @@
                     <div style="color: var(--text-muted); font-size: 0.85rem;">${formatNumber(totals.total_cartons_dc || 0)} ctn</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Mother 금액</div>
-                    <div class="stat-value">${formatCurrencySafe(totals.total_amount_mother || 0)}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">DC 금액</div>
-                    <div class="stat-value">${formatCurrencySafe(totals.total_amount_dc || 0)}</div>
+                    <div class="stat-label">총 수량 차이</div>
+                    <div class="stat-value ${qtyMatch ? '' : 'warning'}">${qtyMatch ? '일치' : formatNumber(qtyDiff)}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">불일치 / 재고 경고</div>
                     <div class="stat-value ${summary.mismatched_skus > 0 ? 'warning' : ''}">${formatNumber(summary.mismatched_skus || 0)}</div>
-                    <div style="color: ${summary.total_inventory_warnings > 0 ? '#dc2626' : 'var(--text-muted)'}; font-size: 0.85rem;">재고 경고 ${formatNumber(summary.total_inventory_warnings || 0)} | 금액 ${formatNumber(amountMismatchCount)}</div>
+                    <div style="color: ${summary.total_inventory_warnings > 0 ? '#dc2626' : 'var(--text-muted)'}; font-size: 0.85rem;">재고 경고 ${formatNumber(summary.total_inventory_warnings || 0)}</div>
                 </div>
             `;
+
+            if (poMeta && Object.keys(poMeta).length > 0) {
+                poMetaCard.style.display = 'block';
+                poMetaBody.innerHTML = `
+                    <div><strong>Mother PO</strong><div>${poMeta.po_number || '-'}</div></div>
+                    <div><strong>DC PO</strong><div>${(poMeta.dc_po_numbers || []).join(', ') || '-'}</div></div>
+                    <div><strong>Vendor</strong><div>${poMeta.vendor || '-'}</div></div>
+                    <div><strong>담당자</strong><div>${poMeta.buyer || '-'}</div></div>
+                    <div><strong>Ship Window</strong><div>${poMeta.ship_window || '-'}</div></div>
+                    <div><strong>DC Ship Window</strong><div>${poMeta.dc_ship_window || '-'}</div></div>
+                `;
+            } else {
+                poMetaCard.style.display = 'none';
+            }
 
             renderDcTotals(byDcTotals);
             renderSkuTable(skuDetails);
@@ -688,8 +781,8 @@
                 inventoryTableBody.innerHTML = '';
 
                 inventoryWarnings.forEach(item => {
-                    const statusClass = item.status === '🚨 Out of Stock' ? 'status-out-of-stock' : 'status-inventory-low';
-                    const statusText = item.available_stock === 0 ? '🚨 재고 없음' : '⚠️ 재고 부족';
+                    const statusClass = item.available_stock === 0 ? 'status-out-of-stock' : 'status-inventory-low';
+                    const statusText = item.available_stock === 0 ? '재고 없음' : '재고 부족';
 
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
@@ -713,12 +806,15 @@
                 return;
             }
 
-            let csv = 'SKU,Name,Pack Size,Mother Qty,Mother Cartons,DC Qty,DC Cartons,Difference,Status,Unit Price,DC Amount,Available Inventory,Shortage,DC Breakdown\n';
+            let csv = 'SKU,Name,Pack Size,Mother Qty,Mother Cartons,DC Qty,DC Cartons,Difference,Status,Inventory Mode,Available,Shortage,DC Breakdown\n';
 
             rows.forEach(item => {
-                const breakdown = (item.dc_breakdown || []).map(dc => `DC#${dc.dc_id}: ${dc.qty}u/${dc.cartons}ctn/${(dc.amount || 0).toFixed(2)}`).join(' | ');
+                const invModeData = getInventoryModeData(item, inventoryMode);
+                const availableVal = invModeData.available;
+                const shortageVal = invModeData.shortage;
+                const breakdown = (item.dc_breakdown || []).map(dc => `DC#${dc.dc_id}: ${dc.qty}u/${dc.cartons}ctn`).join(' | ');
                 const safeName = (item.name || '').replace(/"/g, '""');
-                csv += `${item.sku || ''},"${safeName}",${item.pack_size || 0},${item.mother_qty || 0},${item.mother_cartons || 0},${item.dc_total_qty || 0},${item.dc_total_cartons || 0},${item.difference || 0},${item.status || ''},${(item.unit_price || 0).toFixed(2)},${(item.dc_total_amount || 0).toFixed(2)},${item.inventory?.available_total || 0},${item.inventory?.shortage || 0},"${breakdown}"\n`;
+                csv += `${item.sku || ''},"${safeName}",${item.pack_size || 0},${item.mother_qty || 0},${item.mother_cartons || 0},${item.dc_total_qty || 0},${item.dc_total_cartons || 0},${item.difference || 0},${item.status || ''},${inventoryMode},${availableVal},${shortageVal},"${breakdown}"\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -737,7 +833,7 @@
             const hasMismatches = validationData.mismatches && validationData.mismatches.length > 0;
 
             if (hasMismatches) {
-                const confirmed = confirm('⚠️ 불일치 항목이 있습니다. 그래도 Order Import를 생성하시겠습니까?');
+                const confirmed = confirm('불일치 항목이 있습니다. 그래도 Order Import를 생성하시겠습니까?');
                 if (!confirmed) return;
             }
 
