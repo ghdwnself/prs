@@ -864,6 +864,10 @@ async def get_po_reviews(limit: int = 10):
 async def delete_reviews():
     """
     Delete all PO review records from the po_reviews directory.
+    
+    NOTE: This endpoint should be protected with authentication in production.
+    Currently maintains consistency with other endpoints in the application
+    which also lack authentication mechanisms.
     """
     try:
         reviews_dir = os.path.join(settings.OUTPUT_DIR, "po_reviews")
