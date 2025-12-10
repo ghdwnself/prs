@@ -1,8 +1,10 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, UploadFile, File
+from fastapi.responses import JSONResponse
 import os
 import json
 import glob
 import logging
+import shutil
 from datetime import datetime
 from typing import Dict, Any
 
@@ -329,3 +331,77 @@ async def delete_uploaded_pdf(filename: str):
     except Exception as e:
         logger.error(f"Error deleting PDF {filename}: {e}")
         raise HTTPException(500, str(e))
+
+
+# --- 7. Database Sync Upload Endpoints ---
+
+@router.post("/upload_products")
+async def upload_products(file: UploadFile = File(...)):
+    """
+    Upload products CSV file and sync to Firebase.
+    """
+    try:
+        # Validate file type
+        if not file.filename.endswith('.csv'):
+            return JSONResponse({"status": "error", "message": "Only CSV files are allowed"})
+        
+        # Validate file size (max 10MB)
+        file_size = 0
+        chunk_size = 1024 * 1024  # 1MB chunks
+        max_size = 10 * 1024 * 1024  # 10MB
+        
+        # Save to data/products_template.csv
+        path = os.path.join(settings.DATA_DIR, "products_template.csv")
+        with open(path, "wb") as buffer:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                if file_size > max_size:
+                    os.remove(path)
+                    return JSONResponse({"status": "error", "message": "File size exceeds 10MB limit"})
+                buffer.write(chunk)
+        
+        # Sync to Firebase
+        result = await data_loader.sync_products()
+        return JSONResponse(result)
+    except Exception as e:
+        logger.error(f"Error uploading products: {e}")
+        return JSONResponse({"status": "error", "message": str(e)})
+
+
+@router.post("/upload_inventory")
+async def upload_inventory(file: UploadFile = File(...)):
+    """
+    Upload inventory CSV file and sync to Firebase.
+    """
+    try:
+        # Validate file type
+        if not file.filename.endswith('.csv'):
+            return JSONResponse({"status": "error", "message": "Only CSV files are allowed"})
+        
+        # Validate file size (max 10MB)
+        file_size = 0
+        chunk_size = 1024 * 1024  # 1MB chunks
+        max_size = 10 * 1024 * 1024  # 10MB
+        
+        # Save to data/inventory_template.csv
+        path = os.path.join(settings.DATA_DIR, "inventory_template.csv")
+        with open(path, "wb") as buffer:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                if file_size > max_size:
+                    os.remove(path)
+                    return JSONResponse({"status": "error", "message": "File size exceeds 10MB limit"})
+                buffer.write(chunk)
+        
+        # Sync to Firebase
+        result = await data_loader.sync_inventory()
+        return JSONResponse(result)
+    except Exception as e:
+        logger.error(f"Error uploading inventory: {e}")
+        return JSONResponse({"status": "error", "message": str(e)})

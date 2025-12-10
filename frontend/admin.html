@@ -99,7 +99,26 @@
                     </div>
                 </div>
 
-                <!-- 3. Data Sync (Existing) -->
+                <!-- 3. Database Sync Upload -->
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">📤 Database Sync Upload</div>
+                    </div>
+                    <div class="admin-grid">
+                        <div>
+                            <label class="form-label">Products Template</label>
+                            <input type="file" id="productsFile" accept=".csv" class="form-control" style="margin-bottom: 8px;">
+                            <button class="btn btn-primary" onclick="uploadProducts()">Upload Products</button>
+                        </div>
+                        <div>
+                            <label class="form-label">Inventory Template</label>
+                            <input type="file" id="inventoryFile" accept=".csv" class="form-control" style="margin-bottom: 8px;">
+                            <button class="btn btn-primary" onclick="uploadInventory()">Upload Inventory</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Data Sync (Existing) -->
                 <div class="card">
                     <div class="card-header">
                         <div class="card-title">☁️ Database Sync</div>
@@ -418,6 +437,40 @@
                 el.textContent = d.status === 'ok' ? '🟢 Firebase Connected' : '🔴 Firebase Error';
                 el.style.color = d.status === 'ok' ? '#10b981' : '#ef4444';
             } catch { el.textContent = '🔴 Server Error'; }
+        }
+
+        async function uploadProducts() {
+            const file = document.getElementById('productsFile').files[0];
+            if (!file) { 
+                showToast('파일을 선택하세요', 'error'); 
+                return; 
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch(`${API}/api/admin/upload_products`, { method: 'POST', body: formData });
+                const result = await res.json();
+                showToast(result.message || result.status, result.status);
+            } catch (err) {
+                showToast('업로드 실패: ' + err.message, 'error');
+            }
+        }
+
+        async function uploadInventory() {
+            const file = document.getElementById('inventoryFile').files[0];
+            if (!file) { 
+                showToast('파일을 선택하세요', 'error'); 
+                return; 
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch(`${API}/api/admin/upload_inventory`, { method: 'POST', body: formData });
+                const result = await res.json();
+                showToast(result.message || result.status, result.status);
+            } catch (err) {
+                showToast('업로드 실패: ' + err.message, 'error');
+            }
         }
 
         async function syncData(type) {
