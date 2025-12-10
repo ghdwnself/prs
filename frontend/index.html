@@ -50,7 +50,8 @@
             background: white;
             padding: 16px;
             border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            border: 1px solid #e5e7eb;
         }
         .stat-label { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px; }
         .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--primary-color); }
@@ -325,7 +326,6 @@
                                             <th>상태</th>
                                             <th>재고 (선택 모드)</th>
                                             <th>부족 수량</th>
-                                            <th>DC Breakdown</th>
                                         </tr>
                                     </thead>
                                     <tbody id="skuTableBody"></tbody>
@@ -388,6 +388,7 @@
                         <div class="card">
                             <div class="card-header">
                                 <div class="card-title">📜 최근 검증 기록</div>
+                                <button class="btn btn-secondary" onclick="deleteRecentReviews()" style="padding: 6px 12px; font-size: 13px;">전체 삭제</button>
                             </div>
                             <div id="recentReviewsList">
                                 <p style="color: var(--text-muted); text-align: center; padding: 20px;">
@@ -639,12 +640,6 @@
             details.forEach((item, idx) => {
                 const statusBadge = buildStatusBadge(item.status);
                 const diffText = item.difference > 0 ? `+${item.difference}` : item.difference;
-                const breakdownId = `dc-breakdown-${idx}`;
-                const breakdownContent = (item.dc_breakdown || []).map(dc => `
-                    <div class="dc-breakdown-item">
-                        DC#${dc.dc_id}: ${formatNumber(dc.qty)}u / ${formatNumber(dc.cartons)}ctn
-                    </div>
-                `).join('') || '<div class="dc-breakdown-item">할당 없음</div>';
                 const invModeData = getInventoryModeData(item, inventoryMode);
                 const availableVal = invModeData.available;
                 const shortageVal = invModeData.shortage;
@@ -668,20 +663,8 @@
                         <div class="inventory-pill">${inventoryLabel} ${formatNumber(availableVal)}</div>
                     </td>
                     <td style="color:${shortageVal > 0 ? '#dc2626' : '#0f5132'}">${formatNumber(shortageVal)}</td>
-                    <td>
-                        <button class="btn-link breakdown-toggle" data-target="${breakdownId}">보기</button>
-                        <div id="${breakdownId}" class="dc-breakdown-list">${breakdownContent}</div>
-                    </td>
                 `;
                 skuTableBody.appendChild(tr);
-            });
-
-            document.querySelectorAll('.breakdown-toggle').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const target = document.getElementById(btn.dataset.target);
-                    if (!target) return;
-                    target.style.display = target.style.display === 'block' ? 'none' : 'block';
-                });
             });
         }
 
@@ -874,6 +857,18 @@
                 }
             } catch (err) {
                 console.error('Failed to load recent reviews:', err);
+            }
+        }
+
+        async function deleteRecentReviews() {
+            if (!confirm('모든 검증 기록을 삭제하시겠습니까?')) return;
+            try {
+                const res = await fetch(`${API}/api/delete_reviews`, { method: 'DELETE' });
+                const result = await res.json();
+                showToast(result.message, result.status);
+                loadRecentReviews();
+            } catch (err) {
+                showToast('삭제 실패: ' + err.message, 'error');
             }
         }
 

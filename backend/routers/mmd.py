@@ -399,7 +399,14 @@ async def validate_po_pair(
             mother_qty = int(mother_totals.get(sku, 0))
             dc_qty = int(dc_totals.get(sku, 0))
             inv = inv_map.get(sku, {})
-            pack_size = max(int(inv.get('pack_size', 1) or 1), 1)
+            
+            # Get pack size from products collection (CasePack or UnitsPerCase)
+            product_map = getattr(data_loader, "product_map", {})
+            product_info = product_map.get(sku, {})
+            pack_size = int(product_info.get('UnitsPerCase', product_info.get('CasePack', 1)))
+            if pack_size <= 0:
+                pack_size = 1
+            
             unit_price = float(inv.get('price', 0.0) or 0.0)
 
             mother_cartons = math.ceil(mother_qty / pack_size) if mother_qty > 0 else 0
@@ -851,3 +858,19 @@ async def get_po_reviews(limit: int = 10):
     except Exception as e:
         logger.error(f"Error retrieving PO reviews: {e}")
         raise HTTPException(500, str(e))
+
+
+@router.delete("/delete_reviews")
+async def delete_reviews():
+    """
+    Delete all PO review records from the po_reviews directory.
+    """
+    try:
+        reviews_dir = os.path.join(settings.OUTPUT_DIR, "po_reviews")
+        if os.path.exists(reviews_dir):
+            shutil.rmtree(reviews_dir)
+            os.makedirs(reviews_dir, exist_ok=True)
+        return JSONResponse({"status": "success", "message": "모든 검증 기록이 삭제되었습니다."})
+    except Exception as e:
+        logger.error(f"Error deleting reviews: {e}")
+        return JSONResponse({"status": "error", "message": str(e)})
