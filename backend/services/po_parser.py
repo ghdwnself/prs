@@ -18,6 +18,25 @@ TJX_BRAND_PREFIXES = {
     'WINNERS': 'WIN',
 }
 
+# Buyer-specific parsing configurations
+BUYER_PARSING_CONFIG = {
+    'TJMAXX': {
+        'sku_patterns': [r'VENDOR\s*STYLE', r'^SKU$', r'STYLE\s*#'],
+        'qty_patterns': [r'TOTAL\s*QTY', r'QTY\s*ORDERED'],
+        'date_format': 'MM/DD/YYYY',
+    },
+    'MARSHALLS': {
+        'sku_patterns': [r'VENDOR\s*STYLE', r'^SKU$', r'STYLE\s*#'],
+        'qty_patterns': [r'TOTAL\s*QTY', r'QTY\s*ORDERED'],
+        'date_format': 'MM/DD/YYYY',
+    },
+    'HOMEGOODS': {
+        'sku_patterns': [r'VENDOR\s*STYLE', r'^SKU$', r'STYLE\s*#'],
+        'qty_patterns': [r'TOTAL\s*QTY', r'QTY\s*ORDERED'],
+        'date_format': 'MM/DD/YYYY',
+    },
+}
+
 def _get_brand_prefix(text: str) -> str:
     """Extract brand prefix from PO text for TJX brands."""
     text_upper = text.upper()
@@ -25,6 +44,123 @@ def _get_brand_prefix(text: str) -> str:
         if brand in text_upper:
             return prefix
     return 'MMD'  # Default prefix
+
+def _extract_buyer(text: str) -> str:
+    """
+    Extract Buyer name from PDF first page text.
+    
+    Detection logic:
+    - Look for brand-specific patterns in text
+    - Check for TJX brand indicators: TJ MAXX, TJMAXX, MARSHALLS, HOMEGOODS
+    - Use DC naming patterns (TJM, MAR, etc.) as hints
+    - Return standardized buyer name: 'TJMAXX', 'MARSHALLS', 'HOMEGOODS', etc.
+    - Default to 'UNKNOWN' if no match found
+    
+    Args:
+        text: First page text from PDF
+        
+    Returns:
+        Standardized buyer name in uppercase
+    """
+    text_upper = text.upper()
+    
+    # Check for DC naming patterns (most reliable for DC POs)
+    if 'TJM ' in text_upper or 'MAXX LAS VEGAS' in text_upper:
+        return 'TJMAXX'
+    
+    if 'MAR PHOENIX' in text_upper or 'MAR EL PASO' in text_upper or ': MAR ' in text_upper:
+        return 'MARSHALLS'
+    
+    # Check for explicit brand mentions
+    if 'TJ MAXX' in text_upper or 'TJMAXX' in text_upper:
+        return 'TJMAXX'
+    
+    if 'MARSHALLS' in text_upper:
+        return 'MARSHALLS'
+    
+    if 'HOMEGOODS' in text_upper or 'HOME GOODS' in text_upper:
+        return 'HOMEGOODS'
+    
+    if 'HOMESENSE' in text_upper:
+        return 'HOMESENSE'
+    
+    if 'WINNERS' in text_upper:
+        return 'WINNERS'
+    
+    # Parse by lines to find DEPT# and PO# from header/data rows
+    # The format is typically:
+    # Mother PO:
+    #   Line N: "DEPT# DOMESTIC PO# REFERENCE# ..."
+    #   Line N+1: "82 835247 W173270666 ..."
+    # DC PO (alternate format):
+    #   Line N: "Dept # Order Date Start Ship Date ..."
+    #   Line N+1: "Cancel Date"
+    #   Line N+2: "...other text..."
+    #   Line N+3: "41 7/22/2025 7/25/2025 ..."
+    lines = text.split('\n')
+    dept_num = None
+    po_num = None
+    
+    for i, line in enumerate(lines):
+        line_upper = line.upper()
+        
+        # Format 1: Look for header line with "DEPT#" and "PO#" together (Mother PO format)
+        if 'DEPT#' in line_upper and 'PO#' in line_upper:
+            # Found header line, next line should have data
+            if i + 1 < len(lines):
+                data_line = lines[i + 1].strip()
+                data_parts = data_line.split()
+                
+                # First element is typically DEPT#, second is PO#
+                if len(data_parts) >= 2:
+                    try:
+                        dept_num = data_parts[0]
+                        po_num = data_parts[1]
+                    except:
+                        pass
+            break
+        
+        # Format 2: Look for "Dept #" header (DC PO format)
+        # The data line may be a few lines down
+        if 'DEPT #' in line_upper or 'DEPT# ORDER DATE' in line_upper:
+            # Look in next few lines for a line starting with a number
+            for j in range(i + 1, min(i + 5, len(lines))):
+                candidate_line = lines[j].strip()
+                candidate_parts = candidate_line.split()
+                
+                # Check if first element is a number (likely DEPT#)
+                if candidate_parts and candidate_parts[0].isdigit():
+                    dept_num = candidate_parts[0]
+                    # PO# may be in a different format for DC POs
+                    # Look for "PO Number: 573212" pattern earlier in text
+                    po_match = re.search(r'PO NUMBER:\s*(\d+)', text_upper)
+                    if po_match:
+                        po_num = po_match.group(1)
+                    break
+            break
+    
+    # Use DEPT# to determine buyer (HomeGoods uses 41, others use 82)
+    if dept_num:
+        if dept_num == '41':
+            return 'HOMEGOODS'
+        elif dept_num == '82' and po_num:
+            # Both TJMaxx and Marshalls use DEPT# 82
+            # Use PO# range to differentiate (this is heuristic)
+            # HomeGoods typically uses 5xxxxx range
+            # TJMaxx/Marshalls use 8xxxxx range but are hard to differentiate
+            # For Mother POs without DC names, we can't reliably tell them apart
+            # so we'll just return TJMAXX as default for DEPT# 82
+            if po_num.startswith('5'):
+                return 'HOMEGOODS'
+            else:
+                # Default to TJMAXX for DEPT# 82 (could be Marshalls too)
+                # This is a limitation - Mother POs for TJMaxx and Marshalls
+                # look identical and can't be reliably distinguished
+                logger.warning(f"DEPT# 82 detected but buyer ambiguous (TJMaxx/Marshalls)")
+                return 'TJMAXX'  # Default assumption
+    
+    logger.warning(f"Could not determine buyer from PDF text")
+    return 'UNKNOWN'
 
 def _find_column_index(headers: List[str], patterns: List[str]) -> int:
     """Find column index by matching any of the given patterns."""
@@ -85,6 +221,7 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         'sales_order_num': str,  # Generated SalesOrder#
         'po_number': str,        # Original PO number
         'ship_window': str,
+        'buyer': str,            # Buyer name (TJMAXX, MARSHALLS, HOMEGOODS, etc.)
         'is_mother_po': bool,    # True if Mother PO (no DC columns)
     }
     """
@@ -112,6 +249,9 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
                 extracted_ship_window = f"{dates[0]} - {dates[1]}"
             elif len(dates) == 1:
                 extracted_ship_window = f"Start: {dates[0]}"
+            
+            # Extract Buyer
+            extracted_buyer = _extract_buyer(first_page_text)
             
             # Get brand prefix
             brand_prefix = _get_brand_prefix(first_page_text)
@@ -205,6 +345,7 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
                                     'sales_order_num': sales_order_num,
                                     'po_number': extracted_po_number,
                                     'ship_window': extracted_ship_window,
+                                    'buyer': extracted_buyer,
                                     'is_mother_po': True,
                                 })
                         else:
@@ -240,6 +381,7 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
                                     'sales_order_num': sales_order_num,
                                     'po_number': extracted_po_number,
                                     'ship_window': extracted_ship_window,
+                                    'buyer': extracted_buyer,
                                     'is_mother_po': False,
                                 })
             

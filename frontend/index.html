@@ -96,31 +96,7 @@
             margin-top: 24px;
         }
         
-        .recent-reviews {
-            margin-top: 32px;
-        }
-        .review-item {
-            background: white;
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            border-left: 4px solid var(--primary-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .review-info { flex: 1; }
-        .review-title { font-weight: 600; margin-bottom: 4px; }
-        .review-meta { font-size: 0.85rem; color: var(--text-muted); }
-        .review-badge {
-            background: #f1f5f9;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            margin-left: 8px;
-        }
-        .review-badge.issues { background: #fee2e2; color: #991b1b; }
+
         .global-loading-bar {
             position: fixed;
             top: 0;
@@ -383,20 +359,6 @@
                         </div>
                     </div>
                     
-                    <!-- Recent Reviews Widget -->
-                    <div class="recent-reviews">
-                        <div class="card">
-                            <div class="card-header">
-                                <div class="card-title">📜 최근 검증 기록</div>
-                                <button class="btn btn-secondary" onclick="deleteRecentReviews()" style="padding: 6px 12px; font-size: 13px;">전체 삭제</button>
-                            </div>
-                            <div id="recentReviewsList">
-                                <p style="color: var(--text-muted); text-align: center; padding: 20px;">
-                                    로딩 중...
-                                </p>
-                            </div>
-                        </div>
-                    </div>
                     
                 </div>
             </div>
@@ -586,7 +548,6 @@
                 validationData = result.validation;
 
                 displayValidationResults(validationData);
-                loadRecentReviews();
                 showToast('검증을 완료했습니다. 결과를 확인하세요.', 'success');
             } catch (err) {
                 console.error(err);
@@ -823,56 +784,7 @@
             alert('Order Import 생성 기능은 추후 구현 예정입니다.\n현재는 MMD 페이지에서 생성 가능합니다.');
         });
 
-        async function loadRecentReviews() {
-            try {
-                const res = await fetch(`${API}/api/po_reviews?limit=5`);
-                const result = await res.json();
 
-                const reviewsList = document.getElementById('recentReviewsList');
-
-                if (result.status === 'success' && result.data.length > 0) {
-                    reviewsList.innerHTML = '';
-
-                    result.data.forEach(review => {
-                        const hasIssues = review.mismatch_count > 0 || review.inventory_warning_count > 0;
-                        const timestamp = new Date(review.timestamp).toLocaleString('ko-KR');
-
-                        const div = document.createElement('div');
-                        div.className = 'review-item';
-                        div.innerHTML = `
-                            <div class="review-info">
-                                <div class="review-title">${review.mother_po} vs ${review.dc_po}</div>
-                                <div class="review-meta">
-                                    ${timestamp}
-                                    <span class="review-badge ${hasIssues ? 'issues' : ''}">
-                                        불일치: ${review.mismatch_count} | 재고경고: ${review.inventory_warning_count}
-                                    </span>
-                                </div>
-                            </div>
-                        `;
-                        reviewsList.appendChild(div);
-                    });
-                } else {
-                    reviewsList.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">검증 기록이 없습니다.</p>';
-                }
-            } catch (err) {
-                console.error('Failed to load recent reviews:', err);
-            }
-        }
-
-        async function deleteRecentReviews() {
-            if (!confirm('모든 검증 기록을 삭제하시겠습니까?')) return;
-            try {
-                const res = await fetch(`${API}/api/delete_reviews`, { method: 'DELETE' });
-                const result = await res.json();
-                showToast(result.message, result.status);
-                loadRecentReviews();
-            } catch (err) {
-                showToast('삭제 실패: ' + err.message, 'error');
-            }
-        }
-
-        loadRecentReviews();
     </script>
 </body>
 </html>

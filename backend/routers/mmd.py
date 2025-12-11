@@ -625,6 +625,9 @@ async def analyze_po(
                 "ship_window": ship_window
             }, status_code=400)
         
+        # Extract buyer from first parsed item
+        buyer = parsed_items[0].get('buyer', 'UNKNOWN') if parsed_items else 'UNKNOWN'
+        
         # Extract all SKUs for inventory lookup
         all_skus = list(set(str(item.get('sku', '')).strip() for item in parsed_items))
         
@@ -748,6 +751,7 @@ async def analyze_po(
             "summary": summary,
             "po_number": po_num,
             "ship_window": ship_window,
+            "buyer": buyer,
             "worksheet_url": worksheet_url,
             "raw_data": analysis_result
         })
