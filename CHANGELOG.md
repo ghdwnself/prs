@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.2] - 2025-12-10
+### Fixed
+- **CSV 로딩 에러 수정**: inventory_template.csv의 잘못된 데이터('error' 문자열) 처리 개선
+  - `_safe_int()` 헬퍼 함수 추가로 안전한 정수 변환
+  - 잘못된 행은 경고 로그와 함께 건너뛰도록 수정
+- **파일 업로드 이슈 해결**: index.html의 `.upload-zone` 클래스명을 `.po-upload-zone`으로 변경하여 app.js와의 이벤트 충돌 해결
+
+### Changed
+- **매직 넘버 상수화**: 팔렛 제약 값들을 system_config.json에서 로드하도록 변경
+  - `palletizer.py`, `palletizer_emd.py` 생성자에 config 파라미터 추가
+  - 최대 높이(68"), 최대 무게(2500lb), 팔렛 무게(40lb)를 설정 파일로 관리
+- **에러 핸들링 강화**: Firebase 조회, CSV 로딩, PDF 파싱 등 주요 지점에 try-except 블록 보강
+- **로깅 개선**: 더 상세한 디버깅 정보 추가
+  - SKU별 조회 결과 로그 (Firebase/Cache)
+  - PDF 파싱 단계별 로그
+  - 재고 로딩 상세 정보 (성공/실패 SKU 수)
+
 ## [2.0.1] - 2025-12-10
 ### Added/Changed/Fixed
 - Mother/DC 검증 응답을 총 수량 기준으로 단순화하고 PO 메타, 재고 모드(통합/MAIN/SUB), 팔렛 요약을 포함하도록 반환

@@ -17,6 +17,9 @@ outputs/*
 temp/*
 data/*.csv
 data/*.xlsx
+data/*_parsed.json
+*.pdf
+*.PDF
 
 # --- 5. 폴더 구조 유지를 위한 예외 처리 ---
 # (빈 폴더는 git에 안 올라가므로, .keep 파일은 허용)

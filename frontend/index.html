@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mother+DC PO Validation - POReviewSystem</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="assets/css/style.css">
     <style>
         .validation-container { max-width: 1400px; margin: 0 auto; }
@@ -166,6 +167,134 @@
             font-weight: 600;
             padding: 0;
         }
+        .dc-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: all 0.2s;
+        }
+        .dc-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-color: var(--primary-color);
+        }
+        .dc-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f3f4f6;
+        }
+        .dc-card-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #1f2937;
+        }
+        .dc-card-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .dc-stat-item {
+            background: #f8fafc;
+            padding: 12px;
+            border-radius: 8px;
+        }
+        .dc-stat-label {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+        .dc-stat-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #111827;
+        }
+        .dc-items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+        }
+        .dc-items-table th {
+            background: #f8fafc;
+            padding: 10px;
+            text-align: left;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #4b5563;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .dc-items-table td {
+            padding: 10px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 0.9rem;
+        }
+        .dc-items-table tr:hover {
+            background: #fafbfc;
+        }
+        .toggle-items-btn {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .toggle-items-btn:hover {
+            background: #4338ca;
+        }
+        .dc-items-container {
+            display: none;
+            margin-top: 16px;
+        }
+        .dc-items-container.active {
+            display: block;
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 280px;
+            background-color: #1f2937;
+            color: #fff;
+            text-align: left;
+            border-radius: 8px;
+            padding: 12px;
+            position: absolute;
+            z-index: 1000;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -140px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        .tooltip .tooltiptext::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #1f2937 transparent transparent transparent;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -208,10 +337,14 @@
                     
                     <!-- Upload Section -->
                         <div class="card">
-                            <div class="card-header">
-                                <div class="card-title">PO 파일 업로드</div>
+                            <div class="card-header" id="uploadHeader" style="cursor: pointer;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span id="uploadToggleIcon">▼</span>
+                                    <div class="card-title">PO 파일 업로드</div>
+                                </div>
                             </div>
-                        <p style="color: var(--text-muted); margin-bottom: 24px;">
+                            <div id="uploadContent">
+                        <p style="color: var(--text-muted); margin-bottom: 24px; margin-top: 16px;">
                             Mother PO와 DC PO를 업로드하여 할당량 검증 및 재고 확인을 수행합니다.
                         </p>
                         
@@ -275,18 +408,28 @@
 
                         <div id="skuTableCard" class="card" style="display: none;">
                             <div class="card-header">
-                                <div>
-                                    <div class="card-title">SKU 상세 검증</div>
-                                    <div style="color: var(--text-muted); font-size: 0.9rem;">
-                                        Mother/DC 수량과 재고 상태를 확인하세요. 기본은 MAIN+SUB 통합 재고이며, 탭으로 MAIN 또는 SUB 단독을 볼 수 있습니다.
-                                    </div>
+                                <div class="card-title">SKU 상세 검증</div>
+                            </div>
+                            <div style="padding: 16px; background: #f8fafc; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                                <div style="color: var(--text-muted); font-size: 0.9rem;">
+                                    Mother/DC 수량과 재고 상태를 확인하세요.
                                 </div>
                                 <div style="display:flex; gap:8px; align-items:center;">
-                                    <span style="font-size:0.85rem; color:var(--text-muted);">재고 보기</span>
+                                    <span style="font-size:0.85rem; color:var(--text-muted); font-weight: 600;">재고 모드:</span>
+                                    <div class="tooltip">
+                                        <span style="font-size:1.1rem; color:#6366f1; cursor:help;">ℹ️</span>
+                                        <span class="tooltiptext">
+                                            <strong>재고 모드 설명:</strong><br>
+                                            • <strong>MAIN+SUB</strong>: 전체 재고 (메인+서브 창고 합계)<br>
+                                            • <strong>MAIN</strong>: 메인 창고 재고만 표시<br>
+                                            • <strong>SUB</strong>: 서브 창고 재고만 표시<br>
+                                            <em style="color:#93c5fd;">※ 재고 부족 시 SUB 창고도 확인하세요</em>
+                                        </span>
+                                    </div>
                                     <div id="inventoryToggle" class="btn-group" role="group" aria-label="inventory modes">
-                                        <button type="button" class="btn btn-secondary" data-mode="combined">MAIN+SUB</button>
-                                        <button type="button" class="btn btn-secondary" data-mode="main">MAIN</button>
-                                        <button type="button" class="btn btn-secondary" data-mode="sub">SUB</button>
+                                        <button type="button" class="btn btn-secondary" data-mode="combined" title="전체 재고 (MAIN+SUB)">MAIN+SUB</button>
+                                        <button type="button" class="btn btn-secondary" data-mode="main" title="메인 창고 재고">MAIN</button>
+                                        <button type="button" class="btn btn-secondary" data-mode="sub" title="서브 창고 재고">SUB</button>
                                     </div>
                                 </div>
                             </div>
@@ -389,6 +532,7 @@
         const inventoryTableBody = document.getElementById('inventoryTableBody');
         const skuTableCard = document.getElementById('skuTableCard');
         const skuTableBody = document.getElementById('skuTableBody');
+        const uploadHeader = document.getElementById('uploadHeader');
         const dcTotalsCard = document.getElementById('dcTotalsCard');
         const dcTotalsList = document.getElementById('dcTotalsList');
         const loadingBar = document.getElementById('globalLoadingBar');
@@ -413,11 +557,11 @@
             return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount || 0);
         }
 
-        function setLoadingState(isLoading) {
+        function setLoadingState(isLoading, message = '진행 중...') {
             if (isLoading) {
                 loadingBar.classList.add('active');
                 validateBtn.disabled = true;
-                validateBtn.innerHTML = '<span class="inline-spinner"></span> 진행 중...';
+                validateBtn.innerHTML = `<span class="inline-spinner"></span> ${message}`;
             } else {
                 loadingBar.classList.remove('active');
                 validateBtn.disabled = !(motherFile && dcFile);
@@ -454,6 +598,18 @@
                 shortage: selected.shortage ?? fallbackShortage
             };
         }
+        
+        function toggleUploadSection() {
+            const uploadContent = document.getElementById('uploadContent');
+            const uploadIcon = document.getElementById('uploadToggleIcon');
+            if (uploadContent.style.display === 'none') {
+                uploadContent.style.display = 'block';
+                uploadIcon.textContent = '▼';
+            } else {
+                uploadContent.style.display = 'none';
+                uploadIcon.textContent = '▶';
+            }
+        }
 
         function resetResults() {
             validationResults.classList.remove('active');
@@ -468,16 +624,23 @@
         }
 
         motherPoZone.addEventListener('click', (e) => {
-            e.stopPropagation();
             motherPoInput.click();
         });
         dcPoZone.addEventListener('click', (e) => {
-            e.stopPropagation();
             dcPoInput.click();
         });
+        
+        // Upload section toggle
+        if (uploadHeader) {
+            uploadHeader.addEventListener('click', (e) => {
+                // 헤더 영역만 클릭했을 때만 토글 (업로드 존 제외)
+                if (e.target === uploadHeader || e.target.closest('#uploadToggleIcon') || e.target.classList.contains('card-title')) {
+                    toggleUploadSection();
+                }
+            });
+        }
 
         motherPoInput.addEventListener('change', (e) => {
-            e.stopPropagation();
             const file = e.target.files[0];
             if (file) {
                 motherFile = file;
@@ -488,7 +651,6 @@
         });
 
         dcPoInput.addEventListener('change', (e) => {
-            e.stopPropagation();
             const file = e.target.files[0];
             if (file) {
                 dcFile = file;
@@ -529,11 +691,12 @@
 
         validateBtn.addEventListener('click', async () => {
             try {
-                setLoadingState(true);
+                setLoadingState(true, 'PDF 파일 업로드 중...');
                 const formData = new FormData();
                 formData.append('mother_file', motherFile);
                 formData.append('dc_file', dcFile);
 
+                setLoadingState(true, 'PO 문서 분석 중...');
                 const res = await fetch(`${API}/api/validate_po_pair`, {
                     method: 'POST',
                     body: formData
@@ -541,12 +704,25 @@
 
                 if (!res.ok) {
                     const errorText = await res.text();
-                    throw new Error(errorText);
+                    let errorMessage = errorText;
+                    
+                    // 에러 메시지 한글화
+                    if (errorText.includes('JSON')) {
+                        errorMessage = '데이터 처리 중 오류가 발생했습니다.';
+                    } else if (errorText.includes('parse') || errorText.includes('PDF')) {
+                        errorMessage = 'PDF 파일을 읽을 수 없습니다. 파일을 확인해주세요.';
+                    } else if (errorText.includes('Firebase') || errorText.includes('database')) {
+                        errorMessage = '데이터베이스 연결 오류가 발생했습니다.';
+                    }
+                    
+                    throw new Error(errorMessage);
                 }
 
+                setLoadingState(true, '재고 확인 중...');
                 const result = await res.json();
                 validationData = result.validation;
 
+                setLoadingState(true, '결과 처리 중...');
                 displayValidationResults(validationData);
                 showToast('검증을 완료했습니다. 결과를 확인하세요.', 'success');
             } catch (err) {
@@ -572,22 +748,95 @@
                 return;
             }
             dcTotalsCard.style.display = 'block';
-            dcTotalsList.innerHTML = dcTotals.map(dc => {
-                const palletBlocks = (dc.pallets || []).map(p => `
-                    <div class="pallet-block">
-                        <div class="pallet-title">${p.name}</div>
-                        <div class="pallet-subtitle">SKUs: ${(p.skus || []).join(', ') || '-'}</div>
-                        <div class="pallet-total">${formatNumber(p.total_units)}u · ${formatNumber(p.total_cartons)}ctn</div>
-                    </div>
-                `).join('');
+            dcTotalsList.innerHTML = dcTotals.map((dc, index) => {
+                const palletInfo = (dc.pallets || []).length > 0 ? 
+                    `<div style="margin-top: 8px; font-size: 0.85rem; color: var(--text-muted);">
+                        ${dc.pallets.length} Pallets
+                    </div>` : '';
+                
+                const dcItemsTable = validationData.sku_details
+                    .filter(item => item.dc_breakdown && item.dc_breakdown.some(dcb => dcb.dc_id === dc.dc_id && dcb.qty > 0))
+                    .map(item => {
+                        const dcBreakdown = item.dc_breakdown.find(dcb => dcb.dc_id === dc.dc_id);
+                        if (!dcBreakdown || dcBreakdown.qty === 0) return '';
+                        
+                        const statusBadge = buildStatusBadge(dcBreakdown.status || 'ok');
+                        const invModeData = getInventoryModeData(item, inventoryMode);
+                        
+                        return `
+                            <tr>
+                                <td><strong>${item.sku}</strong></td>
+                                <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name || '-'}</td>
+                                <td>${formatNumber(dcBreakdown.qty)}</td>
+                                <td>${formatNumber(dcBreakdown.cartons)}</td>
+                                <td><span class="status-badge ${statusBadge.cls}">${statusBadge.text}</span></td>
+                                <td>${formatNumber(invModeData.available)}</td>
+                                <td style="color: ${invModeData.shortage > 0 ? '#dc2626' : '#0f5132'}; font-weight: 600;">${formatNumber(invModeData.shortage)}</td>
+                            </tr>
+                        `;
+                    }).filter(row => row !== '').join('');
+                
                 return `
-                    <div class="stat-card dc-summary-card">
-                        <div class="dc-summary-title">DC #${dc.dc_id}</div>
-                        <div class="dc-summary-meta">${formatNumber(dc.units)}u · ${formatNumber(dc.cartons)}ctn (${formatNumber(dc.skus)} SKU)</div>
-                        ${palletBlocks}
+                    <div class="dc-card">
+                        <div class="dc-card-header">
+                            <div class="dc-card-title">🏢 DC #${dc.dc_id}</div>
+                            <button class="toggle-items-btn" onclick="toggleDcItems(${index})">
+                                <span id="dcToggleText${index}">아이템 보기</span>
+                            </button>
+                        </div>
+                        <div class="dc-card-stats">
+                            <div class="dc-stat-item">
+                                <div class="dc-stat-label">총 수량</div>
+                                <div class="dc-stat-value">${formatNumber(dc.units)}</div>
+                            </div>
+                            <div class="dc-stat-item">
+                                <div class="dc-stat-label">총 카톤</div>
+                                <div class="dc-stat-value">${formatNumber(dc.cartons)}</div>
+                            </div>
+                            <div class="dc-stat-item">
+                                <div class="dc-stat-label">SKU 개수</div>
+                                <div class="dc-stat-value">${formatNumber(dc.skus)}</div>
+                            </div>
+                            <div class="dc-stat-item">
+                                <div class="dc-stat-label">팔레트</div>
+                                <div class="dc-stat-value">${(dc.pallets || []).length}</div>
+                            </div>
+                        </div>
+                        <div id="dcItems${index}" class="dc-items-container">
+                            ${dcItemsTable ? `
+                                <table class="dc-items-table">
+                                    <thead>
+                                        <tr>
+                                            <th>SKU</th>
+                                            <th>상품명</th>
+                                            <th>수량</th>
+                                            <th>카톤</th>
+                                            <th>상태</th>
+                                            <th>재고</th>
+                                            <th>부족</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${dcItemsTable}
+                                    </tbody>
+                                </table>
+                            ` : '<div style="padding: 20px; text-align: center; color: var(--text-muted);">아이템 없음</div>'}
+                        </div>
                     </div>
                 `;
             }).join('');
+        }
+        
+        function toggleDcItems(index) {
+            const container = document.getElementById(`dcItems${index}`);
+            const text = document.getElementById(`dcToggleText${index}`);
+            if (container.classList.contains('active')) {
+                container.classList.remove('active');
+                text.textContent = '아이템 보기';
+            } else {
+                container.classList.add('active');
+                text.textContent = '아이템 숨기기';
+            }
         }
 
         function renderSkuTable(details) {
@@ -604,7 +853,6 @@
                 const invModeData = getInventoryModeData(item, inventoryMode);
                 const availableVal = invModeData.available;
                 const shortageVal = invModeData.shortage;
-                const inventoryLabel = inventoryMode === 'main' ? 'MAIN' : (inventoryMode === 'sub' ? 'SUB' : 'MAIN+SUB');
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -613,17 +861,15 @@
                         <div style="color: var(--text-muted); font-size: 0.85rem;">${item.name || '-'}</div>
                     </td>
                     <td>${formatNumber(item.pack_size)}</td>
-                    <td>${formatNumber(item.mother_qty)}<div style="color: var(--text-muted); font-size:0.8rem;">${formatNumber(item.mother_cartons)} ctn</div></td>
-                    <td>${formatNumber(item.dc_total_qty)}<div style="color: var(--text-muted); font-size:0.8rem;">${formatNumber(item.dc_total_cartons)} ctn</div></td>
+                    <td>${formatNumber(item.mother_qty)}<div style="color: var(--text-muted); font-size:0.8rem;">${formatNumber(item.mother_cartons)} 카톤</div></td>
+                    <td>${formatNumber(item.dc_total_qty)}<div style="color: var(--text-muted); font-size:0.8rem;">${formatNumber(item.dc_total_cartons)} 카톤</div></td>
                     <td><strong>${diffText}</strong></td>
                     <td>
                         <span class="status-badge ${statusBadge.cls}">${statusBadge.text}</span>
                         ${item.is_unregistered_sku ? '<div class="unregistered-flag">미등록 SKU</div>' : ''}
                     </td>
-                    <td>
-                        <div class="inventory-pill">${inventoryLabel} ${formatNumber(availableVal)}</div>
-                    </td>
-                    <td style="color:${shortageVal > 0 ? '#dc2626' : '#0f5132'}">${formatNumber(shortageVal)}</td>
+                    <td><strong style="color: #059669;">${formatNumber(availableVal)}</strong></td>
+                    <td style="color:${shortageVal > 0 ? '#dc2626' : '#0f5132'}; font-weight: 600;">${formatNumber(shortageVal)}</td>
                 `;
                 skuTableBody.appendChild(tr);
             });
@@ -631,6 +877,14 @@
 
         function displayValidationResults(validation) {
             validationResults.classList.add('active');
+            
+            // 업로드 섹션 자동 접기
+            const uploadContent = document.getElementById('uploadContent');
+            const uploadIcon = document.getElementById('uploadToggleIcon');
+            if (uploadContent && uploadIcon) {
+                uploadContent.style.display = 'none';
+                uploadIcon.textContent = '▶';
+            }
 
             const summary = validation.summary || {};
             const mismatches = validation.mismatches || [];
@@ -652,29 +906,33 @@
                 summaryBannerEl.innerHTML = `총 수량 차이: ${diffText} (Mother 대비 DC) · 불일치 SKU ${formatNumber(mismatches.length)} · 재고 경고 ${formatNumber(inventoryWarnings.length)}`;
             }
 
+            // 총 금액 계산
+            const totalValue = skuDetails.reduce((sum, item) => {
+                return sum + (item.unit_price || 0) * (item.mother_qty || 0);
+            }, 0);
+
             statsGrid.innerHTML = `
                 <div class="stat-card">
-                    <div class="stat-label">총 SKU 수</div>
-                    <div class="stat-value">${formatNumber(totals.total_skus || 0)}</div>
+                    <div class="stat-label">💰 총 주문 금액</div>
+                    <div class="stat-value" style="color: #059669;">$${formatNumber(totalValue.toFixed(2))}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Mother 합계 (수량/카톤)</div>
+                    <div class="stat-label">📦 Mother 총 수량</div>
                     <div class="stat-value">${formatNumber(totals.total_units_mother || 0)}</div>
-                    <div style="color: var(--text-muted); font-size: 0.85rem;">${formatNumber(totals.total_cartons_mother || 0)} ctn</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem;">${formatNumber(totals.total_cartons_mother || 0)} 카톤</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">DC 합계 (수량/카톤)</div>
+                    <div class="stat-label">🛍️ DC 총 수량</div>
                     <div class="stat-value">${formatNumber(totals.total_units_dc || 0)}</div>
-                    <div style="color: var(--text-muted); font-size: 0.85rem;">${formatNumber(totals.total_cartons_dc || 0)} ctn</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem;">${formatNumber(totals.total_cartons_dc || 0)} 카톤</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">총 수량 차이</div>
+                    <div class="stat-label">✅ 수량 일치 여부</div>
                     <div class="stat-value ${qtyMatch ? '' : 'warning'}">${qtyMatch ? '일치' : formatNumber(qtyDiff)}</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">불일치 / 재고 경고</div>
-                    <div class="stat-value ${summary.mismatched_skus > 0 ? 'warning' : ''}">${formatNumber(summary.mismatched_skus || 0)}</div>
-                    <div style="color: ${summary.total_inventory_warnings > 0 ? '#dc2626' : 'var(--text-muted)'}; font-size: 0.85rem;">재고 경고 ${formatNumber(summary.total_inventory_warnings || 0)}</div>
+                    <div class="stat-label">⚠️ 불일치 / 재고 경고</div>
+                    <div class="stat-value ${summary.mismatched_skus > 0 ? 'warning' : ''}">${formatNumber(summary.mismatched_skus || 0)} / ${formatNumber(summary.total_inventory_warnings || 0)}</div>
                 </div>
             `;
 
@@ -686,7 +944,6 @@
                     <div><strong>Vendor</strong><div>${poMeta.vendor || '-'}</div></div>
                     <div><strong>담당자</strong><div>${poMeta.buyer || '-'}</div></div>
                     <div><strong>Ship Window</strong><div>${poMeta.ship_window || '-'}</div></div>
-                    <div><strong>DC Ship Window</strong><div>${poMeta.dc_ship_window || '-'}</div></div>
                 `;
             } else {
                 poMetaCard.style.display = 'none';

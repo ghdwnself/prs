@@ -45,38 +45,68 @@ def _get_brand_prefix(text: str) -> str:
             return prefix
     return 'MMD'  # Default prefix
 
-def _extract_buyer(text: str) -> str:
+def _extract_buyer(text: str, filename: str = '') -> str:
     """
     Extract Buyer name from PDF first page text.
     
-    Detection logic:
-    - Look for brand-specific patterns in text
-    - Check for TJX brand indicators: TJ MAXX, TJMAXX, MARSHALLS, HOMEGOODS
-    - Use DC naming patterns (TJM, MAR, etc.) as hints
-    - Return standardized buyer name: 'TJMAXX', 'MARSHALLS', 'HOMEGOODS', etc.
-    - Default to 'UNKNOWN' if no match found
+    Detection logic (prioritized):
+    0. Check filename for brand hints (most explicit)
+    1. Look for "BUYER:" field in text (Mother PO)
+    2. Check DC naming patterns (most reliable for DC POs)
+    3. Look for general brand mentions in text
+    4. Use DEPT# as last resort
+    5. Default to 'UNKNOWN' if no match found
     
     Args:
         text: First page text from PDF
+        filename: Optional filename for additional hints
         
     Returns:
         Standardized buyer name in uppercase
     """
     text_upper = text.upper()
+    filename_upper = filename.upper()
     
-    # Check for DC naming patterns (most reliable for DC POs)
-    if 'TJM ' in text_upper or 'MAXX LAS VEGAS' in text_upper:
+    # Priority 0: Check filename for explicit brand hints
+    if 'MARSHALL' in filename_upper:
+        logger.info(f"Buyer detected from filename: MARSHALLS")
+        return 'MARSHALLS'
+    if 'TJMAXX' in filename_upper or 'TJ-MAXX' in filename_upper or 'TJM' in filename_upper:
+        logger.info(f"Buyer detected from filename: TJMAXX")
         return 'TJMAXX'
+    if 'HOMEGOODS' in filename_upper or 'HOME-GOODS' in filename_upper:
+        logger.info(f"Buyer detected from filename: HOMEGOODS")
+        return 'HOMEGOODS'
     
-    if 'MAR PHOENIX' in text_upper or 'MAR EL PASO' in text_upper or ': MAR ' in text_upper:
+    # Priority 1: Check for BUYER: field (Mother PO specific)
+    # Format: "BUYER: SHAWNTE MOORE" or "BUYER: MARIA ANDRADE"
+    # The buyer name appears AFTER "BUYER:" label
+    buyer_match = re.search(r'BUYER:\s*([A-Z\s]+)', text_upper)
+    if buyer_match:
+        buyer_name = buyer_match.group(1).strip()
+        # Known buyer names to brand mapping
+        if 'SHAWNTE' in buyer_name or 'MOORE' in buyer_name:
+            logger.info(f"Buyer detected from BUYER field: MARSHALLS (Shawnte Moore)")
+            return 'MARSHALLS'
+        if 'MARIA' in buyer_name or 'ANDRADE' in buyer_name:
+            logger.info(f"Buyer detected from BUYER field: HOMEGOODS (Maria Andrade)")
+            return 'HOMEGOODS'
+    
+    # Priority 2: Check for DC naming patterns (for DC POs)
+    if 'MAR PHOENIX' in text_upper or 'MAR EL PASO' in text_upper or ': MAR ' in text_upper or 'AZR: MAR' in text_upper:
+        logger.info(f"Buyer detected from DC naming: MARSHALLS")
         return 'MARSHALLS'
     
-    # Check for explicit brand mentions
-    if 'TJ MAXX' in text_upper or 'TJMAXX' in text_upper:
+    if 'TJM ' in text_upper or 'MAXX LAS VEGAS' in text_upper or 'TJM SAN ANTONIO' in text_upper:
+        logger.info(f"Buyer detected from DC naming: TJMAXX")
         return 'TJMAXX'
     
+    # Priority 3: Check for explicit brand mentions in general text
     if 'MARSHALLS' in text_upper:
         return 'MARSHALLS'
+    
+    if 'TJ MAXX' in text_upper or 'TJMAXX' in text_upper:
+        return 'TJMAXX'
     
     if 'HOMEGOODS' in text_upper or 'HOME GOODS' in text_upper:
         return 'HOMEGOODS'
@@ -87,16 +117,7 @@ def _extract_buyer(text: str) -> str:
     if 'WINNERS' in text_upper:
         return 'WINNERS'
     
-    # Parse by lines to find DEPT# and PO# from header/data rows
-    # The format is typically:
-    # Mother PO:
-    #   Line N: "DEPT# DOMESTIC PO# REFERENCE# ..."
-    #   Line N+1: "82 835247 W173270666 ..."
-    # DC PO (alternate format):
-    #   Line N: "Dept # Order Date Start Ship Date ..."
-    #   Line N+1: "Cancel Date"
-    #   Line N+2: "...other text..."
-    #   Line N+3: "41 7/22/2025 7/25/2025 ..."
+    # Priority 4: Parse by lines to find DEPT# and PO#
     lines = text.split('\n')
     dept_num = None
     po_num = None
@@ -143,21 +164,12 @@ def _extract_buyer(text: str) -> str:
     if dept_num:
         if dept_num == '41':
             return 'HOMEGOODS'
-        elif dept_num == '82' and po_num:
+        elif dept_num == '82':
             # Both TJMaxx and Marshalls use DEPT# 82
-            # Use PO# range to differentiate (this is heuristic)
-            # HomeGoods typically uses 5xxxxx range
-            # TJMaxx/Marshalls use 8xxxxx range but are hard to differentiate
-            # For Mother POs without DC names, we can't reliably tell them apart
-            # so we'll just return TJMAXX as default for DEPT# 82
-            if po_num.startswith('5'):
-                return 'HOMEGOODS'
-            else:
-                # Default to TJMAXX for DEPT# 82 (could be Marshalls too)
-                # This is a limitation - Mother POs for TJMaxx and Marshalls
-                # look identical and can't be reliably distinguished
-                logger.warning(f"DEPT# 82 detected but buyer ambiguous (TJMaxx/Marshalls)")
-                return 'TJMAXX'  # Default assumption
+            # Cannot reliably distinguish without additional context
+            logger.warning(f"DEPT# 82 detected - cannot distinguish TJMaxx vs Marshalls without DC names or buyer field")
+            logger.warning(f"Hint: Upload both Mother and DC PO together for accurate matching")
+            return 'UNKNOWN'  # Return UNKNOWN instead of guessing
     
     logger.warning(f"Could not determine buyer from PDF text")
     return 'UNKNOWN'
@@ -187,18 +199,40 @@ def _find_dc_columns(headers: List[str]) -> Dict[int, str]:
 
 def _extract_po_prefix_map(text: str) -> Dict[str, str]:
     """
-    Extract PO prefix mapping from page 1.
-    Pattern: "PO #12345 ... DC #789" maps DC 789 to prefix extracted from PO context.
-    Returns: {dc_id: prefix}
+    Extract PO prefix mapping from DC PO first page.
+    DC PO format:
+      Line N: "PO # 10 573212 PO # 20 573212 PO # 30 573212 ..."
+      Line M: "DC #: 881 DC #: 882 DC #: 883 ..."
+    
+    Maps DC ID to PO prefix: {881: '10', 882: '20', 883: '30', ...}
+    Returns: {dc_id: po_prefix}
     """
     prefix_map = {}
-    # Look for patterns like: "PO #12345678 DC #0789" or similar
-    pattern = r'PO\s*#?\s*(\d+).*?DC\s*#?\s*(\d+)'
-    matches = re.findall(pattern, text, re.IGNORECASE | re.DOTALL)
+    lines = text.split('\n')
     
-    for po_num, dc_id in matches:
-        # First few digits of PO can be used as prefix
-        prefix = po_num[:3] if len(po_num) >= 3 else po_num
+    po_line = None
+    dc_line = None
+    
+    # Find the lines with PO # and DC #
+    for line in lines:
+        if 'PO #' in line and not po_line:
+            po_line = line
+        if 'DC #:' in line and not dc_line:
+            dc_line = line
+        if po_line and dc_line:
+            break
+    
+    if not po_line or not dc_line:
+        return prefix_map
+    
+    # Extract PO prefixes: "PO # 10 ...", "PO # 20 ...", etc.
+    po_prefixes = re.findall(r'PO\s*#\s*(\d{2})\s+\d+', po_line)
+    
+    # Extract DC IDs: "DC #: 881", "DC #: 882", etc.
+    dc_ids = re.findall(r'DC\s*#:\s*(\d+)', dc_line)
+    
+    # Map them in order
+    for dc_id, prefix in zip(dc_ids, po_prefixes):
         prefix_map[dc_id] = prefix
     
     return prefix_map
@@ -227,48 +261,145 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """
     parsed_items: List[Dict[str, Any]] = []
     
+    logger.info(f"Starting PO parse: {pdf_path}")
+    
     try:
         with pdfplumber.open(pdf_path) as pdf:
             if not pdf.pages:
+                logger.error("PDF has no pages")
                 return [], "PDF has no pages"
+            
+            logger.info(f"PDF loaded: {len(pdf.pages)} pages")
             
             # 1. Page 1 Analysis - Extract PO Number, Ship Window, Brand
             first_page_text = pdf.pages[0].extract_text() or ""
+            logger.info(f"First page text length: {len(first_page_text)} characters")
             
-            # Extract PO Number
+            # Extract PO Number - multiple patterns
             extracted_po_number = ""
-            po_match = re.search(r'(?:PO|Purchase Order)\s*#?[:.]?\s*(\d+)', first_page_text, re.IGNORECASE)
+            
+            # Try format: "PO Number: 573212" (DC PO format)
+            po_match = re.search(r'PO\s*NUMBER:\s*(\d+)', first_page_text, re.IGNORECASE)
             if po_match:
                 extracted_po_number = po_match.group(1)
+                logger.info(f"Found PO Number (DC format): {extracted_po_number}")
+            else:
+                # Mother PO format: Look for header "DOMESTIC PO#" followed by data line
+                # Line N: "DEPT# DOMESTIC PO# REFERENCE# ..."
+                # Line N+1: "82 835243 W173270666 ..."
+                lines = first_page_text.split('\n')
+                for i, line in enumerate(lines):
+                    if 'DOMESTIC PO#' in line and i + 1 < len(lines):
+                        # Check if this is the header line (contains multiple field names)
+                        if 'DEPT#' in line and 'REFERENCE#' in line:
+                            # Next line should have the actual data
+                            data_line = lines[i + 1].strip()
+                            # Data format: "82 835243 W173270666 ..."
+                            parts = data_line.split()
+                            if len(parts) >= 2 and parts[1].isdigit():
+                                extracted_po_number = parts[1]
+                                logger.info(f"Found PO Number (Mother PO format): {extracted_po_number}")
+                                break
             
-            # Extract Ship Window
+            if not extracted_po_number:
+                logger.warning("PO Number not found - document may not be in expected format")
+            
+            # Extract Ship Window with proper date sorting
             extracted_ship_window = "TBD"
             date_pattern = r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}'
             dates = re.findall(date_pattern, first_page_text)
             if len(dates) >= 2:
-                extracted_ship_window = f"{dates[0]} - {dates[1]}"
+                try:
+                    from datetime import datetime
+                    parsed_dates = []
+                    for d in dates[:2]:
+                        for fmt in ['%m/%d/%Y', '%m-%d-%Y', '%m/%d/%y']:
+                            try:
+                                parsed_dates.append((datetime.strptime(d, fmt), d))
+                                break
+                            except:
+                                continue
+                    if len(parsed_dates) >= 2:
+                        parsed_dates.sort(key=lambda x: x[0])
+                        extracted_ship_window = f"{parsed_dates[0][1]} - {parsed_dates[1][1]}"
+                    else:
+                        extracted_ship_window = f"{dates[0]} - {dates[1]}"
+                except:
+                    extracted_ship_window = f"{dates[0]} - {dates[1]}"
             elif len(dates) == 1:
                 extracted_ship_window = f"Start: {dates[0]}"
             
-            # Extract Buyer
-            extracted_buyer = _extract_buyer(first_page_text)
+            # Extract Vendor - parse from data line, not header
+            extracted_vendor = ""
+            
+            # DC PO format: Look for header "Primary Vendor" followed by data line
+            # Line N: "Dept # Order Date Start Ship Date ... Primary Vendor Attention ..."
+            # Line N+3: "41 7/22/2025 7/25/2025 8/8/2025 F HIGHEL INC W116487141"
+            # Or: "TJX Companies... 82 7/17/2025 8/13/2025 8/20/2025 N C HIGHEL INC JULIE PARK W173270666"
+            lines = first_page_text.split('\n')
+            found_vendor = False
+            for i, line in enumerate(lines):
+                if 'Primary Vendor' in line and 'Order Date' in line:
+                    # This is DC PO header, look for data line (usually 2-3 lines down)
+                    for offset in range(1, 6):
+                        if i + offset < len(lines):
+                            data_line = lines[i + offset].strip()
+                            # Match company name ending with INC, LLC, LTD, CORP, or CO
+                            match = re.search(r'\d{1,2}/\d{1,2}/\d{4}\s+[A-Z]\s+[A-Z]\s+([A-Z\s]+(?:INC|LLC|LTD|CORP|CO))', data_line)
+                            if not match:
+                                # Try single letter version (F HIGHEL INC W...)
+                                match = re.search(r'\d{1,2}/\d{1,2}/\d{4}\s+[A-Z]\s+([A-Z\s]+(?:INC|LLC|LTD|CORP|CO))', data_line)
+                            if match:
+                                extracted_vendor = match.group(1).strip()
+                                found_vendor = True
+                                break
+                    if found_vendor:
+                        break
+            
+            if not found_vendor:
+                # Mother PO format: Look for header "VENDOR NAME" followed by data line
+                # Line N: "DEPT# DOMESTIC PO# REFERENCE# CIR# VENDOR# VENDOR NAME FOBPOINT"
+                # Line N+1: "41 573212 W116487141 E915 HIGHEL INC CITY: Laguna Hills"
+                for i, line in enumerate(lines):
+                    if 'VENDOR NAME' in line and 'VENDOR#' in line and i + 1 < len(lines):
+                        # This is the header line, check next line for data
+                        data_line = lines[i + 1]
+                        # Look for company name ending with INC, LLC, etc. before "CITY:"
+                        match = re.search(r'[A-Z0-9]{4}\s+([A-Z\s]+(?:INC|LLC|LTD|CORP|CO))\s+CITY:', data_line)
+                        if match:
+                            extracted_vendor = match.group(1).strip()
+                            break
+            
+            # Extract Buyer (pass filename for additional hints)
+            import os
+            filename = os.path.basename(pdf_path)
+            extracted_buyer = _extract_buyer(first_page_text, filename)
+            logger.info(f"Detected Buyer: {extracted_buyer}")
             
             # Get brand prefix
             brand_prefix = _get_brand_prefix(first_page_text)
+            logger.info(f"Brand Prefix: {brand_prefix}")
             
             # Get DC prefix mapping
             dc_prefix_map = _extract_po_prefix_map(first_page_text)
             
             # 2. Table Parsing - Process all pages
-            for page in pdf.pages:
+            total_tables_found = 0
+            for page_num, page in enumerate(pdf.pages, 1):
                 tables = page.extract_tables()
-                for table in tables:
+                if tables:
+                    logger.info(f"Page {page_num}: Found {len(tables)} table(s)")
+                    total_tables_found += len(tables)
+                
+                for table_num, table in enumerate(tables, 1):
                     if not table or len(table) < 2:
+                        logger.warning(f"Page {page_num} Table {table_num}: Skipped (empty or too few rows)")
                         continue
                     
                     # Clean and normalize header row
                     header = table[0]
                     clean_header = [str(h).replace('\n', ' ').strip() if h else '' for h in header]
+                    logger.info(f"Page {page_num} Table {table_num} Headers: {clean_header}")
                     
                     # Dynamic column detection using regex patterns
                     sku_idx = _find_column_index(clean_header, [r'VENDOR\s*STYLE', r'^SKU$', r'STYLE\s*#', r'ITEM\s*#'])
@@ -282,7 +413,10 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
                     
                     # Skip if SKU column not found
                     if sku_idx == -1:
+                        logger.warning(f"Page {page_num} Table {table_num}: SKU column not found, skipping")
                         continue
+                    
+                    logger.info(f"Page {page_num} Table {table_num}: SKU col={sku_idx}, DC columns={len(dc_map)}, is_mother_po={len(dc_map) == 0}")
                     
                     # Determine if this is a Mother PO (no DC columns) or DC PO
                     is_mother_po = len(dc_map) == 0
@@ -346,6 +480,7 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
                                     'po_number': extracted_po_number,
                                     'ship_window': extracted_ship_window,
                                     'buyer': extracted_buyer,
+                                    'vendor': extracted_vendor,
                                     'is_mother_po': True,
                                 })
                         else:
@@ -367,7 +502,7 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
                                     continue
                                 
                                 # SalesOrder# = {MMM}{Prefix}{PO#}
-                                dc_prefix = dc_prefix_map.get(dc_id, dc_id[:3])
+                                dc_prefix = dc_prefix_map.get(dc_id, dc_id[-2:])
                                 sales_order_num = f"{brand_prefix}{dc_prefix}{extracted_po_number}"
                                 
                                 parsed_items.append({
@@ -378,20 +513,26 @@ def parse_po(pdf_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
                                     'case_qty': math.ceil(dc_qty / pack_size),
                                     'unit_cost': 0.0,  # Cost = 0 for DC POs
                                     'dc_id': dc_id,
+                                    'dc_po_prefix': dc_prefix,  # Add PO prefix for DC PO number construction
                                     'sales_order_num': sales_order_num,
                                     'po_number': extracted_po_number,
                                     'ship_window': extracted_ship_window,
                                     'buyer': extracted_buyer,
+                                    'vendor': extracted_vendor,
                                     'is_mother_po': False,
                                 })
             
             if not parsed_items:
-                return [], "No valid data found in PDF"
+                logger.error(f"No valid data found in PDF: {pdf_path}")
+                logger.error(f"Total tables found: {total_tables_found}, PO#: {extracted_po_number}, Buyer: {extracted_buyer}")
+                return [], f"No valid data found in PDF. Found {total_tables_found} tables but no valid SKU rows."
             
+            logger.info(f"Successfully parsed {len(parsed_items)} items from PDF")
+            logger.info(f"Buyer: {extracted_buyer}, PO#: {extracted_po_number}, Vendor: {extracted_vendor}")
             return parsed_items, None
             
     except Exception as e:
-        logger.error(f"Error parsing PDF: {e}")
+        logger.error(f"Error parsing PDF {pdf_path}: {e}", exc_info=True)
         return [], f"Error parsing PDF: {str(e)}"
 
 

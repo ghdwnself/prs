@@ -27,6 +27,16 @@ class DataLoader:
         if pd.isna(val) or val == "" or val is None:
             return default
         return val
+    
+    def _safe_int(self, val, default=0):
+        """안전한 정수 변환"""
+        try:
+            if pd.isna(val) or val == "" or val is None:
+                return default
+            return int(float(val))
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid integer value: {val}, using default: {default}")
+            return default
 
     def load_csv_to_memory(self):
         """서버 시작 시 CSV를 메모리에 로드 (DB 연결 실패 시 사용)"""
@@ -36,43 +46,94 @@ class DataLoader:
         p_path = os.path.join(self.data_dir, "products_template.csv")
         if os.path.exists(p_path):
             try:
-                df = pd.read_csv(p_path, dtype={'SKU': str})
+                # Read CSV with first row as numeric headers, then map to proper names
+                df = pd.read_csv(p_path, dtype={'1': str})
+                
+                # Column mapping (0-indexed position -> proper name)
+                col_mapping = {
+                    0: 'SKU',
+                    2: 'ProductName_Short',
+                    12: 'UnitsPerCase',  # Pack size column
+                    13: 'CasePack',  # Alternative pack size
+                    19: 'KeyAccountPrice_TJX',
+                    14: 'MasterCarton_Length_inches',
+                    15: 'MasterCarton_Width_inches',
+                    16: 'MasterCarton_Height_inches',
+                    23: 'Max_Cartons_per_Pallet',
+                    24: 'Max_Height_inches'
+                }
+                
                 for _, row in df.iterrows():
-                    sku = str(row.get('SKU', '')).strip()
-                    if sku: 
-                        self.product_map[sku] = row.to_dict()
+                    # Use column index 0 for SKU
+                    sku = str(row.iloc[0]).strip() if len(row) > 0 else ''
+                    if sku and sku.lower() not in ['nan', 'none', 'sku', '1']:
+                        # Map numeric columns to proper names
+                        mapped_row = {}
+                        for col_idx, col_name in col_mapping.items():
+                            if col_idx < len(row):
+                                val = row.iloc[col_idx]
+                                # Convert to proper type
+                                if col_name in ['UnitsPerCase', 'CasePack', 'Max_Cartons_per_Pallet']:
+                                    mapped_row[col_name] = self._safe_int(val, 1)
+                                elif col_name in ['KeyAccountPrice_TJX', 'MasterCarton_Length_inches', 
+                                                  'MasterCarton_Width_inches', 'MasterCarton_Height_inches', 
+                                                  'Max_Height_inches']:
+                                    try:
+                                        mapped_row[col_name] = float(val) if pd.notna(val) else 0.0
+                                    except:
+                                        mapped_row[col_name] = 0.0
+                                else:
+                                    mapped_row[col_name] = val if pd.notna(val) else ''
+                        
+                        self.product_map[sku] = mapped_row
                 logger.info(f"Products loaded: {len(self.product_map)}")
             except Exception as e:
-                logger.error(f"Failed to load products CSV: {e}")
+                logger.error(f"Failed to load products CSV: {e}", exc_info=True)
 
         # Inventory - Now with location details preserved (MAIN vs SUB)
         i_path = os.path.join(self.data_dir, "inventory_template.csv")
         if os.path.exists(i_path):
             try:
                 df = pd.read_csv(i_path, dtype={'sku': str})
-                for _, row in df.iterrows():
-                    sku = str(row.get('sku', '')).strip()
-                    if not sku:
+                skipped_rows = 0
+                for idx, row in df.iterrows():
+                    try:
+                        sku = str(row.get('sku', '')).strip()
+                        if not sku or sku.lower() in ['nan', 'none', '']:
+                            continue
+                        
+                        # Parse location: WH_MAIN -> MAIN, WH_SUB -> SUB
+                        location_raw = str(row.get('location', 'MAIN')).strip().upper()
+                        if not location_raw or location_raw.lower() in ['nan', 'none']:
+                            location = 'MAIN'
+                        elif 'SUB' in location_raw:
+                            location = 'SUB'
+                        elif 'MAIN' in location_raw:
+                            location = 'MAIN'
+                        else:
+                            location = location_raw  # Fallback to raw value
+                        
+                        # 안전한 정수 변환 사용
+                        on_hand = self._safe_int(row.get('onHand'), 0)
+                        
+                        if sku not in self.inventory_map:
+                            self.inventory_map[sku] = {
+                                "total": 0,
+                                "locations": {}
+                            }
+                        
+                        # Add to location-specific count
+                        if location not in self.inventory_map[sku]["locations"]:
+                            self.inventory_map[sku]["locations"][location] = 0
+                        
+                        self.inventory_map[sku]["locations"][location] += on_hand
+                        self.inventory_map[sku]["total"] += on_hand
+                    except Exception as row_error:
+                        skipped_rows += 1
+                        logger.warning(f"Skipped inventory row {idx}: {row_error}")
                         continue
                     
-                    # Normalize location to uppercase (e.g., 'Main' -> 'MAIN')
-                    location = str(row.get('location', 'MAIN')).strip().upper()
-                    on_hand = int(self._clean_nan(row.get('onHand'), 0))
-                    
-                    if sku not in self.inventory_map:
-                        self.inventory_map[sku] = {
-                            "total": 0,
-                            "locations": {}
-                        }
-                    
-                    # Add to location-specific count
-                    if location not in self.inventory_map[sku]["locations"]:
-                        self.inventory_map[sku]["locations"][location] = 0
-                    
-                    self.inventory_map[sku]["locations"][location] += on_hand
-                    self.inventory_map[sku]["total"] += on_hand
-                    
-                logger.info(f"Inventory loaded: {len(self.inventory_map)} SKUs")
+                logger.info(f"Inventory loaded: {len(self.inventory_map)} SKUs (skipped {skipped_rows} rows)")
             except Exception as e:
                 logger.error(f"Failed to load inventory CSV: {e}")
 

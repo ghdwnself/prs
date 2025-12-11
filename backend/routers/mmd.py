@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Body
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 import os
 import shutil
 import math
@@ -20,7 +20,7 @@ from services.palletizer import Palletizer
 from services.document_generator import DocumentGenerator
 from services.firebase_service import firebase_manager
 from services.data_loader import data_loader
-from services.utils import safe_int
+from services.utils import safe_int, safe_float, sanitize_for_json
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -76,63 +76,95 @@ def _is_unregistered_sku(inv_data: Dict[str, Any], sku: str) -> bool:
 # --- Helper Functions ---
 def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:
     """
-    Fetch inventory data from Firebase with location details.
+    Fetch inventory data with CACHE-FIRST strategy to minimize Firebase calls.
     Returns inventory map with MAIN/SUB split.
     """
+    import time
+    start_time = time.time()
+    
     db = firebase_manager.get_db()
     inventory_map = {}
     
+    logger.info(f"Fetching inventory for {len(sku_list)} SKUs (cache-first strategy)")
+    cache_hits = 0
+    firebase_calls = 0
+    
     for sku in sku_list:
         sku = str(sku).strip()
-        product_data = {'price': 0.0, 'pack_size': 1, 'weight': 15.0, 'height': 10.0, 'name': ''}
+        product_data = {'price': 0.0, 'pack_size': 1, 'weight': 15.0, 'height': 10.0, 'name': '', 'brand': ''}
         
-        # 1. Product Info
-        if db:
+        # 1. CACHE FIRST - Product Info
+        cache_hit = False
+        if sku in data_loader.product_map:
             try:
+                cached = data_loader.product_map[sku]
+                product_data['price'] = float(cached.get('KeyAccountPrice_TJX', 0.0) or 0.0)
+                product_data['pack_size'] = safe_int(cached.get('UnitsPerCase', 1), 1)
+                product_data['weight'] = float(cached.get('MasterCarton_Weight_lbs', 15.0) or 15.0)
+                product_data['height'] = float(cached.get('MasterCarton_Height_inches', 10.0) or 10.0)
+                product_data['name'] = cached.get('ProductName_Short', '')
+                product_data['brand'] = cached.get('Brand', '')
+                cache_hit = True
+                cache_hits += 1
+            except Exception as e:
+                logger.warning(f"Failed to load cached product data for SKU {sku}: {e}")
+        
+        # Fallback to Firebase only if cache miss
+        if not cache_hit and db:
+            try:
+                firebase_calls += 1
                 prod_doc = db.collection('products').document(sku).get()
                 if prod_doc.exists:
                     p = prod_doc.to_dict()
-                    product_data['price'] = float(p.get('KeyAccountPrice_TJX', 0.0) or 0.0)
-                    product_data['pack_size'] = int(p.get('UnitsPerCase', 1) or 1)
-                    product_data['weight'] = float(p.get('MasterCarton_Weight_lbs', 15.0) or 15.0)
-                    product_data['height'] = float(p.get('MasterCarton_Height_inches', 10.0) or 10.0)
+                    product_data['price'] = safe_float(p.get('KeyAccountPrice_TJX', 0.0), 0.0)
+                    product_data['pack_size'] = safe_int(p.get('UnitsPerCase', 1), 1)
+                    product_data['weight'] = safe_float(p.get('MasterCarton_Weight_lbs', 15.0), 15.0)
+                    product_data['height'] = safe_float(p.get('MasterCarton_Height_inches', 10.0), 10.0)
                     product_data['name'] = p.get('ProductName_Short', '')
+                    product_data['brand'] = p.get('Brand', '')
             except Exception as e:
-                logger.warning(f"Failed to fetch product info for SKU {sku}: {e}")
-        
-        # Fallback to memory cache if no Firebase data
-        if not product_data['name'] and sku in data_loader.product_map:
-            cached = data_loader.product_map[sku]
-            product_data['price'] = float(cached.get('KeyAccountPrice_TJX', 0.0) or 0.0)
-            product_data['pack_size'] = int(cached.get('UnitsPerCase', 1) or 1)
-            product_data['weight'] = float(cached.get('MasterCarton_Weight_lbs', 15.0) or 15.0)
-            product_data['height'] = float(cached.get('MasterCarton_Height_inches', 10.0) or 10.0)
-            product_data['name'] = cached.get('ProductName_Short', '')
+                logger.warning(f"Failed to fetch product info from Firebase for SKU {sku}: {e}")
 
-        # 2. Inventory Stock with Location Details (MAIN vs SUB)
+        # 2. CACHE FIRST - Inventory Stock with Location Details
         locations = {'MAIN': 0, 'SUB': 0}
         total_stock = 0
         
-        if db:
+        # Try cache first
+        if sku in data_loader.inventory_map:
             try:
+                cached_inv = data_loader.inventory_map[sku]
+                main_qty = safe_int(cached_inv.get('MAIN', 0), 0)
+                sub_qty = safe_int(cached_inv.get('SUB', 0), 0)
+                locations['MAIN'] = main_qty
+                locations['SUB'] = sub_qty
+                total_stock = main_qty + sub_qty
+                cache_hits += 1
+            except Exception as e:
+                logger.warning(f"Failed to load cached inventory for SKU {sku}: {e}")
+        
+        # Fallback to Firebase only if cache miss
+        if total_stock == 0 and db:
+            try:
+                firebase_calls += 1
                 docs = db.collection('inventory').where('sku', '==', sku).stream()
                 for doc in docs:
                     doc_data = doc.to_dict()
-                    on_hand = int(doc_data.get('onHand', 0))
-                    location = str(doc_data.get('location', 'MAIN')).strip().upper()
+                    on_hand = safe_int(doc_data.get('onHand', 0), 0)
+                    # Parse location: WH_MAIN -> MAIN, WH_SUB -> SUB
+                    location_raw = str(doc_data.get('location', 'MAIN')).strip().upper()
+                    if 'SUB' in location_raw:
+                        location = 'SUB'
+                    elif 'MAIN' in location_raw:
+                        location = 'MAIN'
+                    else:
+                        location = location_raw
                     
                     if location not in locations:
                         locations[location] = 0
                     locations[location] += on_hand
                     total_stock += on_hand
             except Exception as e:
-                logger.warning(f"Failed to fetch inventory for SKU {sku}: {e}")
-        
-        # Fallback to memory cache
-        if total_stock == 0 and sku in data_loader.inventory_map:
-            cached_inv = data_loader.inventory_map[sku]
-            locations = cached_inv.get('locations', {'MAIN': 0, 'SUB': 0}).copy()
-            total_stock = cached_inv.get('total', 0)
+                logger.warning(f"Failed to fetch inventory from Firebase for SKU {sku}: {e}")
 
         inventory_map[sku] = {
             'total': total_stock,
@@ -140,95 +172,69 @@ def get_inventory_data(sku_list: List[str]) -> Dict[str, Dict]:
             **product_data
         }
     
+    elapsed = time.time() - start_time
+    logger.info(f"Inventory fetch completed: {elapsed:.2f}s (Cache hits: {cache_hits}/{len(sku_list)*2}, Firebase calls: {firebase_calls})")
     return inventory_map
 
 # --- API Endpoints ---
 
-@router.post("/validate_dc_allocation")
-async def validate_dc_allocation(payload: Dict[str, Any] = Body(...)):
+@router.post("/download_review_worksheet")
+async def download_review_worksheet(payload: Dict[str, Any] = Body(...)):
     """
-    Validate DC PO allocations against Mother PO requirements.
-    Checks that sum of DC allocations matches Mother PO's SKU-level total.
+    Generate and download Review Worksheet CSV for inventory adjustment.
     """
     try:
-        mother_po_items = payload.get('mother_po_items', [])
-        dc_po_items = payload.get('dc_po_items', [])
+        validation = payload.get('validation', {})
+        sku_details = validation.get('sku_details', [])
+        po_meta = validation.get('po_meta', {})
         
-        # Build Mother PO totals by SKU
-        mother_totals = {}
-        for item in mother_po_items:
-            sku = str(item.get('sku', '')).strip()
-            try:
-                qty = int(item.get('po_qty', 0))
-            except (ValueError, TypeError):
-                logger.warning(f"Invalid po_qty for SKU {sku} in Mother PO, using 0")
-                qty = 0
-            mother_totals[sku] = mother_totals.get(sku, 0) + qty
+        if not sku_details:
+            raise HTTPException(400, "No SKU details found in validation data")
         
-        # Build DC PO totals by SKU
-        dc_totals = {}
-        dc_breakdown = {}  # Track which DCs have which SKUs
-        for item in dc_po_items:
-            sku = str(item.get('sku', '')).strip()
-            dc_id = str(item.get('dc_id', '')).strip()
-            try:
-                qty = int(item.get('po_qty', 0))
-            except (ValueError, TypeError):
-                logger.warning(f"Invalid po_qty for SKU {sku} in DC PO, using 0")
-                qty = 0
-            
-            dc_totals[sku] = dc_totals.get(sku, 0) + qty
-            
-            if sku not in dc_breakdown:
-                dc_breakdown[sku] = []
-            dc_breakdown[sku].append({'dc_id': dc_id, 'qty': qty})
+        # Create worksheet data
+        worksheet_data = []
+        for item in sku_details:
+            worksheet_data.append({
+                'SKU': item.get('sku', ''),
+                'Brand': item.get('brand', ''),
+                'Product_Name': item.get('name', ''),
+                'Pack_Size': item.get('pack_size', 1),
+                'System_Unit_Price': item.get('unit_price', 0),
+                'PO_Unit_Price': item.get('po_unit_price', 0),
+                'Mother_PO_Qty': item.get('mother_qty', 0),
+                'DC_Total_Qty': item.get('dc_total_qty', 0),
+                'Available_MAIN': item.get('inventory_modes', {}).get('main', {}).get('available', 0),
+                'Available_SUB': item.get('inventory_modes', {}).get('sub', {}).get('available', 0),
+                'Available_Total': item.get('inventory', {}).get('available_total', 0),
+                'Shortage': item.get('inventory', {}).get('shortage', 0),
+                'Status': item.get('status', ''),
+                'Notes': ''
+            })
         
-        # Compare and find mismatches
-        mismatches = []
-        for sku, mother_qty in mother_totals.items():
-            dc_qty = dc_totals.get(sku, 0)
-            
-            if dc_qty != mother_qty:
-                mismatches.append({
-                    'sku': sku,
-                    'mother_qty': mother_qty,
-                    'dc_total': dc_qty,
-                    'difference': dc_qty - mother_qty,
-                    'dc_breakdown': dc_breakdown.get(sku, []),
-                    'status': 'over' if dc_qty > mother_qty else 'under'
-                })
+        # Convert to DataFrame
+        df = pd.DataFrame(worksheet_data)
         
-        # Check for SKUs in DC PO but not in Mother PO
-        for sku in dc_totals:
-            if sku not in mother_totals:
-                mismatches.append({
-                    'sku': sku,
-                    'mother_qty': 0,
-                    'dc_total': dc_totals[sku],
-                    'difference': dc_totals[sku],
-                    'dc_breakdown': dc_breakdown.get(sku, []),
-                    'status': 'extra'
-                })
+        # Generate filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        po_number = po_meta.get('po_number', 'Unknown')
+        safe_po = re.sub(r'[^\w\-]', '_', str(po_number))
+        filename = f"Review_Worksheet_{safe_po}_{timestamp}.csv"
+        filepath = os.path.join(settings.OUTPUT_DIR, filename)
         
-        validation_result = {
-            'is_valid': len(mismatches) == 0,
-            'total_skus_mother': len(mother_totals),
-            'total_skus_dc': len(dc_totals),
-            'mismatches': mismatches,
-            'summary': {
-                'matching_skus': len(mother_totals) - len(mismatches),
-                'mismatched_skus': len(mismatches)
-            }
-        }
+        # Save CSV
+        df.to_csv(filepath, index=False, encoding='utf-8-sig')
         
-        return JSONResponse({
-            "status": "success",
-            "validation": validation_result
-        })
+        logger.info(f"Generated review worksheet: {filename}")
+        
+        return FileResponse(
+            path=filepath,
+            filename=filename,
+            media_type='text/csv'
+        )
         
     except Exception as e:
-        logger.error(f"Error validating DC allocation: {e}")
-        raise HTTPException(500, str(e))
+        logger.error(f"Failed to generate review worksheet: {e}")
+        raise HTTPException(500, f"Failed to generate worksheet: {str(e)}")
 
 
 @router.post("/validate_po_pair")
@@ -240,12 +246,19 @@ async def validate_po_pair(
     Validate Mother PO against DC PO in a single request.
     Parses both PDFs, compares allocations, and validates inventory.
     """
+    import time
+    start_time = time.time()
+    
     mother_temp_path = None
     dc_temp_path = None
     
     try:
         # Generate UUID-based temp filenames to avoid collisions
         # Sanitize filenames to prevent path traversal and invalid characters
+        logger.info("=== Starting PO Validation ===")
+        logger.info(f"Mother file: {mother_file.filename}, DC file: {dc_file.filename}")
+        step_time = time.time()
+        
         mother_safe_name = _sanitize_filename(mother_file.filename)
         dc_safe_name = _sanitize_filename(dc_file.filename)
         mother_temp_path = os.path.join(settings.TEMP_DIR, f"{uuid.uuid4()}_{mother_safe_name}")
@@ -257,6 +270,9 @@ async def validate_po_pair(
         with open(dc_temp_path, "wb") as buffer:
             shutil.copyfileobj(dc_file.file, buffer)
         
+        logger.info(f"File upload completed: {time.time() - step_time:.2f}s")
+        step_time = time.time()
+        
         # Parse Mother PO
         mother_items, mother_error = parse_po(mother_temp_path)
         if mother_error:
@@ -267,23 +283,45 @@ async def validate_po_pair(
         if dc_error:
             raise HTTPException(400, f"Failed to parse DC PO: {dc_error}")
         
+        logger.info(f"PDF parsing completed: {time.time() - step_time:.2f}s")
+        step_time = time.time()
+        
         # Extract PO numbers and ship windows
         mother_first = mother_items[0] if mother_items else {}
         dc_first = dc_items[0] if dc_items else {}
         mother_po_number = mother_first.get('po_number', '')
         dc_po_number = dc_first.get('po_number', '')
         mother_ship_window = mother_first.get('ship_window', 'TBD')
-        dc_ship_window = dc_first.get('ship_window', 'TBD')
-        vendor = mother_first.get('vendor', '')
-        buyer = mother_first.get('buyer', '')
-        dc_po_numbers = list({str(item.get('po_number', '')).strip() for item in dc_items if item.get('po_number')})
+        vendor = dc_first.get('vendor', '')
+        # Use buyer from DC PO (more accurate due to DC naming patterns)
+        buyer = dc_first.get('buyer', '') or mother_first.get('buyer', '')
+        
+        # Build DC PO numbers: DC prefix + Mother PO number
+        # DC items contain 'dc_po_prefix' from parsing (e.g., "10", "20", "30")
+        dc_po_map = {}
+        for item in dc_items:
+            dc_id = str(item.get('dc_id', '')).strip()
+            prefix = item.get('dc_po_prefix', '')
+            if dc_id and prefix and dc_id not in dc_po_map:
+                dc_po_map[dc_id] = f"{prefix}{mother_po_number}"
+        
+        dc_po_numbers = list(dc_po_map.values())
+        if not dc_po_numbers:
+            # Fallback to parsed PO number
+            dc_po_numbers = list({str(item.get('po_number', '')).strip() for item in dc_items if item.get('po_number')})
+
         
         # Build Mother PO totals by SKU
         mother_totals = {}
+        mother_unit_costs = {}  # Track unit cost from Mother PO
         for item in mother_items:
             sku = str(item.get('sku', '')).strip()
-            qty = int(item.get('po_qty', 0))
+            qty = safe_int(item.get('po_qty', 0), 0)
+            unit_cost_from_po = safe_float(item.get('unit_cost', 0.0), 0.0)
             mother_totals[sku] = mother_totals.get(sku, 0) + qty
+            # Store unit cost from PO (if available and > 0)
+            if unit_cost_from_po > 0 and sku not in mother_unit_costs:
+                mother_unit_costs[sku] = unit_cost_from_po
         
         # Build DC PO totals by SKU
         dc_totals = {}
@@ -291,7 +329,7 @@ async def validate_po_pair(
         for item in dc_items:
             sku = str(item.get('sku', '')).strip()
             dc_id = str(item.get('dc_id', '')).strip()
-            qty = int(item.get('po_qty', 0))
+            qty = safe_int(item.get('po_qty', 0), 0)
             
             dc_totals[sku] = dc_totals.get(sku, 0) + qty
             
@@ -343,8 +381,14 @@ async def validate_po_pair(
         # Get all unique SKUs for inventory validation
         all_skus = list(set(list(mother_totals.keys()) + list(dc_totals.keys())))
         
+        logger.info(f"PO comparison completed: {time.time() - step_time:.2f}s")
+        step_time = time.time()
+        
         # Fetch inventory data
         inv_map = get_inventory_data(all_skus)
+        
+        logger.info(f"Inventory data fetch: {time.time() - step_time:.2f}s")
+        step_time = time.time()
         
         # Convert to validator format
         validator_inv_map = {}
@@ -370,12 +414,12 @@ async def validate_po_pair(
         # Build inventory warnings
         inventory_warnings = []
         for item in validated_mother:
-            shortage = int(item.get('remaining_shortage', 0))
+            shortage = safe_int(item.get('remaining_shortage', 0), 0)
             if shortage > 0:
                 inventory_warnings.append({
                     'sku': item.get('sku'),
-                    'po_qty': int(item.get('po_qty', 0)),
-                    'available_stock': int(item.get('available_stock', 0)),
+                    'po_qty': safe_int(item.get('po_qty', 0), 0),
+                    'available_stock': safe_int(item.get('available_stock', 0), 0),
                     'shortage': shortage,
                     'status': item.get('inventory_status', 'OK')
                 })
@@ -383,7 +427,7 @@ async def validate_po_pair(
         shortage_map: Dict[str, int] = {}
         for item in validated_mother:
             sku_key = str(item.get('sku', '')).strip()
-            shortage_map[sku_key] = shortage_map.get(sku_key, 0) + int(item.get('remaining_shortage', 0))
+            shortage_map[sku_key] = shortage_map.get(sku_key, 0) + safe_int(item.get('remaining_shortage', 0), 0)
 
         sku_details: List[Dict[str, Any]] = []
         by_dc_totals_map: Dict[str, Dict[str, Any]] = {}
@@ -396,18 +440,35 @@ async def validate_po_pair(
         }
 
         for sku in all_skus:
-            mother_qty = int(mother_totals.get(sku, 0))
-            dc_qty = int(dc_totals.get(sku, 0))
+            mother_qty = safe_int(mother_totals.get(sku, 0), 0)
+            dc_qty = safe_int(dc_totals.get(sku, 0), 0)
             inv = inv_map.get(sku, {})
             
-            # Get pack size from products collection (CasePack or UnitsPerCase)
+            # Get pack size from DC items first (more accurate), then fallback to product map
+            pack_size = 1
+            # Try to get pack_size from DC items (they have actual pack size from PDF table)
+            for item in dc_items:
+                if str(item.get('sku', '')).strip() == sku:
+                    item_pack = safe_int(item.get('pack_size', 0), 0)
+                    if item_pack > 1:
+                        pack_size = item_pack
+                        break
+            
+            # Fallback to product map if not found in DC items
             product_map = getattr(data_loader, "product_map", {})
             product_info = product_map.get(sku, {})
-            pack_size = int(product_info.get('UnitsPerCase', product_info.get('CasePack', 1)))
-            if pack_size <= 0:
-                pack_size = 1
+            if pack_size == 1:
+                pack_size = safe_int(product_info.get('UnitsPerCase', product_info.get('CasePack', 1)), 1)
+                if pack_size <= 0:
+                    pack_size = 1
             
-            unit_price = float(inv.get('price', 0.0) or 0.0)
+            # Get unit price - try multiple sources
+            unit_price = safe_float(inv.get('price', 0.0), 0.0)
+            if unit_price == 0 and product_info:
+                # Fallback to product_map if inv doesn't have price
+                unit_price = safe_float(product_info.get('KeyAccountPrice_TJX', 0.0), 0.0)
+            
+            logger.debug(f"SKU {sku}: price={unit_price}, pack={pack_size}")
 
             mother_cartons = math.ceil(mother_qty / pack_size) if mother_qty > 0 else 0
             dc_cartons = math.ceil(dc_qty / pack_size) if dc_qty > 0 else 0
@@ -425,7 +486,7 @@ async def validate_po_pair(
             breakdown_list = []
             for dc_entry in dc_breakdown.get(sku, []):
                 dc_id_val = str(dc_entry.get('dc_id', '')).strip()
-                dc_qty_val = int(dc_entry.get('qty', 0))
+                dc_qty_val = safe_int(dc_entry.get('qty', 0), 0)
                 cartons_val = math.ceil(dc_qty_val / pack_size) if dc_qty_val > 0 else 0
                 breakdown_list.append({
                     'dc_id': dc_id_val,
@@ -451,19 +512,32 @@ async def validate_po_pair(
             totals['total_cartons_dc'] += dc_cartons
             
             locations = inv.get('locations', {})
-            available_main = int(locations.get('MAIN', 0))
-            available_sub = int(locations.get('SUB', 0))
-            available_total = int(inv.get('total', 0))
-            shortage_total = int(shortage_map.get(sku, 0))
+            available_main = safe_int(locations.get('MAIN', 0), 0)
+            available_sub = safe_int(locations.get('SUB', 0), 0)
+            available_total = safe_int(inv.get('total', 0), 0)
+            shortage_total = safe_int(shortage_map.get(sku, 0), 0)
             shortage_main = max(0, mother_qty - available_main)
             shortage_sub = max(0, mother_qty - available_sub)
             is_unregistered_sku = _is_unregistered_sku(inv, sku)
+            
+            # Compare PO price vs System price
+            po_unit_price = mother_unit_costs.get(sku, 0.0)
+            price_difference = 0.0
+            price_match = True
+            if po_unit_price > 0 and unit_price > 0:
+                price_difference = unit_price - po_unit_price
+                # Consider prices matching if within $0.01 (rounding tolerance)
+                price_match = abs(price_difference) < 0.01
 
             sku_details.append({
                 'sku': sku,
                 'name': inv.get('name', ''),
+                'brand': inv.get('brand', ''),
                 'pack_size': pack_size,
                 'unit_price': unit_price,
+                'po_unit_price': po_unit_price,
+                'price_difference': price_difference,
+                'price_match': price_match,
                 'mother_qty': mother_qty,
                 'mother_cartons': mother_cartons,
                 'dc_total_qty': dc_qty,
@@ -487,21 +561,57 @@ async def validate_po_pair(
             })
 
         by_dc_totals: List[Dict[str, Any]] = []
+        palletizer = Palletizer()
+        
         for dc_id, totals_obj in by_dc_totals_map.items():
             sku_preview = heapq.nsmallest(SKU_PREVIEW_LIMIT, totals_obj['skus'])
+            
+            # Calculate pallets for this DC
+            dc_pallet_items = []
+            for item in dc_items:
+                if str(item.get('dc_id', '')).strip() == dc_id:
+                    sku = str(item.get('sku', '')).strip()
+                    qty = safe_int(item.get('po_qty', 0), 0)
+                    inv = inv_map.get(sku, {})
+                    
+                    # Get pack size
+                    pack_size = safe_int(item.get('pack_size', 1), 1)
+                    if pack_size < 1:
+                        pack_size = 1
+                    
+                    # Get Max CT from product map (Max_Cartons_per_Pallet)
+                    product_info = data_loader.product_map.get(sku, {})
+                    max_ct = safe_int(product_info.get('Max_Cartons_per_Pallet', 20), 20)
+                    if max_ct <= 0:
+                        max_ct = 20
+                    
+                    dc_pallet_items.append({
+                        'sku': sku,
+                        'description': inv.get('name', ''),
+                        'po_qty': qty,
+                        'pack_size': pack_size,
+                        'case_qty': math.ceil(qty / pack_size) if qty > 0 else 0,
+                        'weight_lbs': inv.get('weight', 15.0),
+                        'height_inches': inv.get('height', 10.0),
+                        'max_cartons_per_pallet': max_ct
+                    })
+            
+            # Calculate pallets
+            dc_pallets = []
+            if dc_pallet_items:
+                try:
+                    dc_pallets = palletizer.calculate_pallets(dc_pallet_items)
+                    logger.info(f"DC #{dc_id}: Generated {len(dc_pallets)} pallets")
+                except Exception as e:
+                    logger.error(f"Failed to calculate pallets for DC #{dc_id}: {e}")
+            
             by_dc_totals.append({
                 'dc_id': dc_id,
                 'units': totals_obj['units'],
                 'cartons': totals_obj['cartons'],
                 'skus': len(totals_obj['skus']),
                 'sku_preview': sku_preview,
-                'pallets': [{
-                    'name': f"DC #{dc_id}",
-                    'pallet_number': str(dc_id),
-                    'skus': sku_preview,
-                    'total_units': totals_obj['units'],
-                    'total_cartons': totals_obj['cartons']
-                }]
+                'pallets': dc_pallets
             })
         
         total_qty_difference = totals['total_units_dc'] - totals['total_units_mother']
@@ -512,8 +622,7 @@ async def validate_po_pair(
             'dc_po_numbers': dc_po_number_list,
             'vendor': vendor or '',
             'buyer': buyer or '',
-            'ship_window': mother_ship_window or 'TBD',
-            'dc_ship_window': dc_ship_window or 'TBD'
+            'ship_window': mother_ship_window or 'TBD'
         }
         # Build validation result
         validation_result = {
@@ -537,14 +646,15 @@ async def validate_po_pair(
                 'dc_po': dc_po_number
             },
             'ship_windows': {
-                'mother_po': mother_ship_window,
-                'dc_po': dc_ship_window
+                'mother_po': mother_ship_window
             },
             'po_meta': po_meta,
             'sku_details': sku_details,
             'totals': totals,
             'by_dc_totals': by_dc_totals
         }
+        
+        logger.info(f"Building response data: {time.time() - step_time:.2f}s")
         
         # Store review record
         timestamp = datetime.now().isoformat()
@@ -554,13 +664,15 @@ async def validate_po_pair(
             'dc_po': dc_po_number,
             'po_meta': po_meta,
             'history_key': mother_po_number,
-            'source': buyer or vendor,
-            'customer_file': mother_po_number,
-            'summary': validation_result['summary'],
-            'mismatch_count': len(mismatches),
-            'inventory_warning_count': len(inventory_warnings),
-            'result_files': []
         }
+        
+        logger.info(f"Validation complete: {len(sku_details)} SKUs, {len(by_dc_totals)} DCs, {len(mismatches)} mismatches")
+        logger.info(f"=== TOTAL TIME: {time.time() - start_time:.2f}s ===")
+        logger.debug(f"by_dc_totals sample: {by_dc_totals[:2] if by_dc_totals else 'empty'}")
+        
+        # Sanitize validation result to remove NaN values before JSON serialization
+        validation_result = sanitize_for_json(validation_result)
+        review_record = sanitize_for_json(review_record)
         
         # Save review to outputs/po_reviews/
         reviews_dir = os.path.join(settings.OUTPUT_DIR, "po_reviews")
@@ -574,16 +686,26 @@ async def validate_po_pair(
         with open(review_path, 'w', encoding='utf-8') as f:
             json.dump(review_record, f, indent=2)
         
-        return JSONResponse({
+        # Final sanitization before JSON response
+        response_data = sanitize_for_json({
             "status": "success",
             "validation": validation_result
         })
         
+        # JSON serialization with sanitization
+        try:
+            response_data = sanitize_for_json(response_data)
+            json_str = json.dumps(response_data, ensure_ascii=False, allow_nan=False)
+            return Response(content=json_str, media_type="application/json")
+        except (ValueError, TypeError) as e:
+            logger.error(f"JSON 직렬화 오류: {e}")
+            raise HTTPException(500, f"데이터 변환 중 오류가 발생했습니다: {str(e)}")
+        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error validating PO pair: {e}")
-        raise HTTPException(500, str(e))
+        logger.error(f"PO 검증 오류: {e}", exc_info=True)
+        raise HTTPException(500, f"검증 처리 중 오류가 발생했습니다: {str(e)}")
     finally:
         # Clean up temp files
         if mother_temp_path and os.path.exists(mother_temp_path):
@@ -681,14 +803,14 @@ async def analyze_po(
         for item in validated_items:
             sku = str(item.get('sku', '')).strip()
             dc_id = str(item.get('dc_id', '')) or 'N/A'
-            po_qty = int(item.get('po_qty', 0))
-            pack_size = int(item.get('pack_size', 1))
+            po_qty = safe_int(item.get('po_qty', 0), 0)
+            pack_size = safe_int(item.get('pack_size', 1), 1)
             if pack_size < 1:
                 pack_size = 1
             
             # Get price from inventory map
             inv = inv_map.get(sku, {'price': 0.0, 'pack_size': 1})
-            price = float(inv.get('price', 0.0))
+            price = safe_float(inv.get('price', 0.0), 0.0)
             case_qty = math.ceil(po_qty / pack_size)
             total_price = po_qty * price
             
@@ -696,7 +818,7 @@ async def analyze_po(
             main_stock = _get_stock_value(item, 'available_main_stock')
             sub_stock = _get_stock_value(item, 'available_sub_stock')
             total_stock = _get_stock_value(item, 'available_total_stock')
-            remaining_shortage = int(item.get('remaining_shortage', 0))
+            remaining_shortage = safe_int(item.get('remaining_shortage', 0), 0)
             
             analysis_result.append({
                 'DC #': dc_id,
@@ -711,7 +833,7 @@ async def analyze_po(
                 'Status': item.get('status', 'OK'),
                 'Status Label': item.get('status_label', item.get('status', '')),
                 'PO Price': price,
-                'Unit Cost': float(item.get('unit_cost', 0.0)),
+                'Unit Cost': safe_float(item.get('unit_cost', 0.0), 0.0),
                 'Total Amount': total_price,
                 'Final Qty (Units)': po_qty,
                 'Sales Order #': item.get('sales_order_num', ''),
@@ -781,11 +903,11 @@ async def calculate_pallets(payload: Dict[str, Any] = Body(...)):
         pallet_input = []
         for row in data_rows:
             sku = str(row.get('SKU', ''))
-            final_qty = int(row.get('Final Qty (Units)', row.get('Final Qty', 0)))
+            final_qty = safe_int(row.get('Final Qty (Units)', row.get('Final Qty', 0)), 0)
             if final_qty <= 0: continue
             
             inv = inv_map.get(sku, {'pack_size': 1, 'weight': 15, 'height': 10})
-            pack_size = int(row.get('Pack Size', inv['pack_size']))
+            pack_size = safe_int(row.get('Pack Size', inv.get('pack_size', 1)), 1)
             if pack_size < 1: pack_size = 1
             
             pallet_input.append({

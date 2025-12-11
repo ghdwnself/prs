@@ -1,11 +1,27 @@
 import math
+from core.config import settings
 
 class PalletizerEMD:
-    def __init__(self):
+    def __init__(self, config=None):
+        """
+        EMD Palletizer 초기화. 설정값은 system_config.json에서 로드.
+        
+        Args:
+            config: Optional dict with pallet settings (for testing/override)
+        """
+        # Load from settings if config not provided
+        if config is None:
+            system_config = settings._load_system_config()
+            config = system_config
+        
+        # Pallet dimensions (fixed)
         self.PALLET_WIDTH = 40
         self.PALLET_LENGTH = 48
-        self.MAX_HEIGHT = 60  # [요청] EMD 최대 높이 60인치
         self.PALLET_BASE_HEIGHT = 6
+        
+        # Configurable constraint from system_config.json
+        # EMD uses same max_height as MMD
+        self.MAX_HEIGHT = int(config.get('pallet_max_height', 68))
 
     def calculate_pallets(self, order_items):
         """

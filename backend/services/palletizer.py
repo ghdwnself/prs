@@ -1,163 +1,177 @@
 import pandas as pd
 import math
+from core.config import settings
 
 class Palletizer:
-    def __init__(self):
-        # --- [수정됨] 사용자 요구사항 반영 ---
+    def __init__(self, config=None):
+        """
+        Palletizer 초기화. 설정값은 system_config.json에서 로드.
+        구글 스프레드시트 팔레타이징 로직 기반:
+        - Max CT (Max Cartons per Pallet) 사용
+        - 부피 기반 계산 (1/Max CT = 단위 부피)
+        - First Fit Decreasing Bin Packing
+        
+        Args:
+            config: Optional dict with pallet settings (for testing/override)
+        """
+        # Load from settings if config not provided
+        if config is None:
+            system_config = settings._load_system_config()
+            config = system_config
+        
+        # Pallet dimensions (fixed)
         self.PALLET_WIDTH = 40
         self.PALLET_LENGTH = 48
-        self.MAX_HEIGHT = 68      # 최대 높이 68인치
-        self.MAX_WEIGHT = 2500    # 최대 무게 2500lb
-        self.PALLET_BASE_HEIGHT = 6 # 나무 팔레트 높이
-        self.PALLET_BASE_WEIGHT = 40 # 나무 팔레트 무게
+        self.PALLET_BASE_HEIGHT = 6
+        
+        # Configurable constraints from system_config.json
+        self.MAX_HEIGHT = int(config.get('pallet_max_height', 68))
+        self.MAX_WEIGHT = int(config.get('pallet_max_weight', 2500))
+        self.PALLET_BASE_WEIGHT = int(config.get('pallet_base_weight', 40))
 
     def calculate_pallets(self, order_items):
         """
-        order_items: List of dicts (SKU, Qty(Cases), weight_per_case, height_per_case 등 포함)
+        구글 스프레드시트 로직 기반 팔레타이징:
+        1. Max CT를 사용하여 각 SKU의 부피 계산 (1 / Max CT)
+        2. Full Pallet (부피 1.0) 먼저 생성
+        3. 잔량은 First Fit Decreasing로 Mixed Pallet 생성
+        
+        order_items: List of dicts with:
+            - sku: SKU 번호
+            - po_qty: 주문 수량 (cartons)
+            - pack_size: case pack
+            - weight_lbs: 무게
+            - height_inches: 높이
+            - max_cartons_per_pallet: Max CT (optional, default=20)
+        
+        Returns: List of pallet dicts
         """
-        # 1. DC별 그룹화
-        dc_groups = {}
+        pallets = []
+        pallet_counter = 1
+        splitted_items = []  # 부피 < 1.0인 잔량들
+        
+        # 1. Full Pallet 생성 및 잔량 수집
         for item in order_items:
-            dc_id = str(item.get('dc_id', 'Unknown'))
-            if dc_id not in dc_groups:
-                dc_groups[dc_id] = []
-            dc_groups[dc_id].append(item)
-
-        all_pallets = []
-        global_pallet_counter = 1
-
-        for dc_id, items in dc_groups.items():
-            # 혼적(Mixed)을 위한 대기열
-            mixed_candidates = []
-
-            # --- 2-1. Full Pallet 계산 ---
-            for item in items:
-                sku = item['SKU']
-                case_qty = item['Qty'] # 박스 수량
-                
-                # 아이템 물성치 (없으면 기본값 가정)
-                box_weight = float(item.get('box_weight', 15)) # 기본 15lb
-                box_height = float(item.get('box_height', 10)) # 기본 10inch
-                
-                # Ti-Hi 계산 (바닥면적 기준 박스 개수)
-                # 가정: 12x12 박스라고 치면 48x40 팔레트에 약 12개 들어감 (보수적 계산)
-                ti = 10 
-                
-                # 높이 제한으로 Hi(단수) 계산
-                available_height = self.MAX_HEIGHT - self.PALLET_BASE_HEIGHT
-                max_layers_height = int(available_height / box_height)
-                
-                # 무게 제한으로 Hi 계산
-                available_weight = self.MAX_WEIGHT - self.PALLET_BASE_WEIGHT
-                max_cases_weight = int(available_weight / box_weight)
-                
-                # 최종 Full Pallet 당 박스 개수
-                cases_per_layer = ti
-                max_cases_per_pallet = min(max_layers_height * ti, max_cases_weight)
-                
-                if max_cases_per_pallet <= 0: max_cases_per_pallet = 1 # 예외처리
-
-                # Full Pallet 개수 산출
-                full_count = case_qty // max_cases_per_pallet
-                remainder = case_qty % max_cases_per_pallet
-
-                for _ in range(full_count):
-                    all_pallets.append({
-                        'pallet_id': f"P{global_pallet_counter:03d}",
-                        'dc_id': dc_id,
-                        'type': 'FULL',
-                        'items': [{
-                            'sku': sku, 
-                            'qty': max_cases_per_pallet, 
-                            'desc': item.get('desc', ''),
-                            'unit_qty': item.get('unit_qty', 0) # 단순 표기용 (정확하지 않을 수 있음)
-                        }],
-                        'total_cases': max_cases_per_pallet,
-                        'est_height': (max_cases_per_pallet / ti) * box_height + self.PALLET_BASE_HEIGHT,
-                        'est_weight': (max_cases_per_pallet * box_weight) + self.PALLET_BASE_WEIGHT
-                    })
-                    global_pallet_counter += 1
-                
-                if remainder > 0:
-                    mixed_candidates.append({
-                        'sku': sku,
-                        'qty': remainder,
-                        'desc': item.get('desc', ''),
-                        'box_weight': box_weight,
-                        'box_height': box_height,
-                        'pack_size': item.get('pack_size', 1)
-                    })
-
-            # --- 2-2. Mixed Pallet 계산 (물리적 제한 적용) ---
-            current_mixed = []
-            current_weight = self.PALLET_BASE_WEIGHT
-            current_height = self.PALLET_BASE_HEIGHT
-            # Mixed는 높이 계산이 복잡하므로, 누적 부피나 단순 적층으로 근사치 계산
-            # 여기서는 "무게"와 "부피(높이 환산)" 중 먼저 차는 것을 기준으로 함
+            sku = str(item.get('sku', '')).strip()
+            case_qty = item.get('case_qty', 0) or item.get('po_qty', 0)
             
-            for item in mixed_candidates:
-                qty_to_pack = item['qty']
-                box_w = item['box_weight']
-                box_h = item['box_height']
+            if case_qty <= 0:
+                continue
+            
+            # Max CT: Product 데이터에서 가져오기, 없으면 20 기본값
+            max_ct = item.get('max_cartons_per_pallet', 20)
+            if not max_ct or max_ct <= 0:
+                max_ct = 20
+            
+            unit_plt = 1.0 / max_ct  # 1 카튼당 팔레트 부피
+            
+            qty_left = case_qty
+            
+            # Full Pallet 생성 (부피 = 1.0)
+            while qty_left > 0:
+                total_plt = qty_left * unit_plt
                 
-                while qty_to_pack > 0:
-                    # 하나 더 넣었을 때 제한 초과 여부 확인
-                    # 높이는 정확한 적재 시뮬레이션 없이 어려우므로, 
-                    # "박스 10개가 1층(Height 증가)"이라고 단순화하여 계산
+                if total_plt >= 1.0:
+                    # Full Pallet 생성
+                    full_qty = int(math.floor(max_ct))
                     
-                    # 현재 팔레트에 담긴 총 박스 수
-                    current_total_cases = sum(i['qty'] for i in current_mixed)
-                    current_layers = (current_total_cases // 10) + 1
-                    est_next_height = (current_layers * 12) + self.PALLET_BASE_HEIGHT # 평균 박스높이 12 가정
-                    
-                    est_next_weight = current_weight + box_w
-
-                    if est_next_weight > self.MAX_WEIGHT or est_next_height > self.MAX_HEIGHT:
-                        # 팔레트 마감
-                        all_pallets.append({
-                            'pallet_id': f"P{global_pallet_counter:03d}",
-                            'dc_id': dc_id,
-                            'type': 'MIXED',
-                            'items': current_mixed,
-                            'total_cases': sum(i['qty'] for i in current_mixed),
-                            'est_height': est_next_height, # 근사치
-                            'est_weight': current_weight
-                        })
-                        global_pallet_counter += 1
-                        current_mixed = []
-                        current_weight = self.PALLET_BASE_WEIGHT
-                        current_height = self.PALLET_BASE_HEIGHT
-                    
-                    # 박스 담기
-                    # 이미 같은 SKU가 있는지 확인
-                    existing = next((i for i in current_mixed if i['sku'] == item['sku']), None)
-                    if existing:
-                        existing['qty'] += 1
-                    else:
-                        current_mixed.append({
-                            'sku': item['sku'],
-                            'qty': 1,
-                            'desc': item['desc'],
-                            'pack_size': item['pack_size']
-                        })
-                    
-                    current_weight += box_w
-                    qty_to_pack -= 1
-
-            # 마지막 잔량 처리
-            if current_mixed:
-                all_pallets.append({
-                    'pallet_id': f"P{global_pallet_counter:03d}",
-                    'dc_id': dc_id,
-                    'type': 'MIXED',
-                    'items': current_mixed,
-                    'total_cases': sum(i['qty'] for i in current_mixed),
-                    'est_height': 50, # 잔량
-                    'est_weight': current_weight
+                    pallets.append({
+                        'name': f'Pallet #{pallet_counter}',
+                        'pallet_number': pallet_counter,
+                        'type': 'FULL',
+                        'skus': [sku],
+                        'items': [{
+                            'sku': sku,
+                            'qty': full_qty,
+                            'description': item.get('description', ''),
+                            'pack_size': item.get('pack_size', 1)
+                        }],
+                        'total_units': full_qty * item.get('pack_size', 1),
+                        'total_cartons': full_qty,
+                        'total_weight': full_qty * item.get('weight_lbs', 15.0) + self.PALLET_BASE_WEIGHT,
+                        'total_height': item.get('height_inches', 10.0) * (full_qty / max_ct * 10) + self.PALLET_BASE_HEIGHT,
+                        'utilization_percent': 100
+                    })
+                    pallet_counter += 1
+                    qty_left -= full_qty
+                else:
+                    # 잔량 - splitted items에 추가
+                    volume = total_plt
+                    splitted_items.append({
+                        'sku': sku,
+                        'volume': volume,
+                        'qty': qty_left,
+                        'max_ct': max_ct,
+                        'description': item.get('description', ''),
+                        'pack_size': item.get('pack_size', 1),
+                        'weight_lbs': item.get('weight_lbs', 15.0),
+                        'height_inches': item.get('height_inches', 10.0)
+                    })
+                    qty_left = 0
+        
+        # 2. Mixed Pallet 생성 (First Fit Decreasing)
+        # 큰 부피부터 정렬
+        splitted_items.sort(key=lambda x: x['volume'], reverse=True)
+        
+        bin_list = []  # 각 bin = 하나의 mixed pallet
+        
+        for item in splitted_items:
+            placed = False
+            
+            # 기존 bin에 넣을 수 있는지 확인
+            for bin_obj in bin_list:
+                if bin_obj['total_volume'] + item['volume'] <= 1.0:
+                    bin_obj['items'].append(item)
+                    bin_obj['total_volume'] += item['volume']
+                    placed = True
+                    break
+            
+            # 넣을 수 없으면 새 bin 생성
+            if not placed:
+                bin_list.append({
+                    'items': [item],
+                    'total_volume': item['volume']
                 })
-                global_pallet_counter += 1
-
-        return all_pallets
+        
+        # 3. Mixed Pallet을 최종 pallets 리스트에 추가
+        for bin_obj in bin_list:
+            pal_items = []
+            total_cartons = 0
+            total_units = 0
+            total_weight = self.PALLET_BASE_WEIGHT
+            max_height = 0
+            skus = []
+            
+            for it in bin_obj['items']:
+                pal_items.append({
+                    'sku': it['sku'],
+                    'qty': it['qty'],
+                    'description': it['description'],
+                    'pack_size': it['pack_size']
+                })
+                total_cartons += it['qty']
+                total_units += it['qty'] * it['pack_size']
+                total_weight += it['qty'] * it['weight_lbs']
+                max_height = max(max_height, it['height_inches'])
+                skus.append(it['sku'])
+            
+            utilization_pct = int(bin_obj['total_volume'] * 100)
+            
+            pallets.append({
+                'name': f'Pallet #{pallet_counter}',
+                'pallet_number': pallet_counter,
+                'type': 'MIXED',
+                'skus': skus,
+                'items': pal_items,
+                'total_units': total_units,
+                'total_cartons': total_cartons,
+                'total_weight': total_weight,
+                'total_height': max_height + self.PALLET_BASE_HEIGHT,
+                'utilization_percent': utilization_pct
+            })
+            pallet_counter += 1
+        
+        return pallets
 
     def generate_packing_list_data(self, pallets, dc_info_lookup):
         rows = []
